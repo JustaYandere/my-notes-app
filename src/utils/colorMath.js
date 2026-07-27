@@ -50,7 +50,7 @@ export function shadeHex(hex, hueOverride, satCap, lightness) {
   return rgbToHex(r, g, b);
 }
 export function computeThemeFromColor(hex, cardLighter) {
-  const [h, s, l] = hexToHsl(hex);
+  const [h, , l] = hexToHsl(hex);
   const bg = hex;
   const elevated = shadeHex(hex, h, 1, l + (cardLighter ? 0.07 : -0.07));
   const isDarkBg = l < 0.5;

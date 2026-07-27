@@ -6,15 +6,7 @@ export function formatDate(ts) {
   const sameYear = d.getFullYear() === now.getFullYear();
   return d.toLocaleDateString(undefined, sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
 }
-export function previewText(body) { return (body || '').replace(/~~(.*?)~~/g, '$1').replace(/\n/g, ' ').trim(); }
-export function renderStrike(text, keyPrefix) {
-  const parts = text.split(/(~~.*?~~)/g);
-  return parts.map((p, i) => (p.startsWith('~~') && p.endsWith('~~') ? <s key={`${keyPrefix}-${i}`}>{p.slice(2, -2)}</s> : <span key={`${keyPrefix}-${i}`}>{p}</span>));
-}
-export function renderBody(body, keyPrefix) {
-  const lines = (body || '').split('\n');
-  return lines.map((line, i) => (line.trim() ? <div key={i}>{renderStrike(line, `${keyPrefix}-${i}`)}</div> : <div key={i} style={{ height: '0.6em' }} />));
-}
+export function previewText(body) { return (body || '').replace(/~~(.*?)~~/g, '$1').replace(/==(.*?)==/g, '$1').replace(/\n/g, ' ').trim(); }
 export function wordsOf(note) {
   return new Set(((note.title || '') + ' ' + (note.body || '') + ' ' + (note.checklist || []).map((i) => i.text).join(' ')).toLowerCase().match(/[a-z0-9']+/g) || []);
 }

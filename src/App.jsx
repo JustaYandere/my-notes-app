@@ -1,15 +1,16 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Search, Plus, Trash2, LayoutGrid, Rows3, Minus, PlusIcon,
-  Settings, Download, Upload, X, Lock, Strikethrough,
+  Settings, Download, Upload, X, Lock,
   GitCompare, RotateCcw, Archive, Check, Undo2, Redo2, Save, ArrowLeft,
-  MoreVertical, Pin, EyeOff, Eye, FileText, Share2, Palette, Type, SlidersHorizontal, ChevronRight,
+  MoreVertical, Pin, EyeOff, Eye, FileText, Share2, Palette, Type, SlidersHorizontal, ChevronRight, Paintbrush, Square, Maximize2,
+  CloudRain, Sparkles, Image as ImageIcon, Ban, Bell, BellOff, Mic, User, Users, Music,
 } from 'lucide-react';
 
-import { hslToRgb, rgbToHex, mixColors, hexToHsl, clamp01, shadeHex, computeThemeFromColor, relativeLuminance, contrastText } from './utils/colorMath';
+import { hslToRgb, rgbToHex, mixColors, computeThemeFromColor, contrastText } from './utils/colorMath';
 import {
-  loadLocal, saveLocal, formatDate, previewText, renderStrike, renderBody,
-  wordsOf, jaccard, sortChecklistItems, isFullyStruck, reorderBodyByStrike, wordCount, previewPlan,
+  loadLocal, saveLocal, formatDate, previewText,
+  wordsOf, jaccard, sortChecklistItems, reorderBodyByStrike, previewPlan,
 } from './utils/noteHelpers';
 import {
   FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
@@ -18,10 +19,20 @@ import {
 import ColorWheel from './components/ColorWheel';
 import LightnessSlider from './components/LightnessSlider';
 import Checkbox from './components/Checkbox';
+import MainBackdrop from './components/MainBackdrop';
+import VoiceNotes from './components/VoiceNotes';
+import AccountPanel from './components/AccountPanel';
+import ConnectedAccounts from './components/ConnectedAccounts';
+import ShareNotePicker from './components/ShareNotePicker';
+import ConnectedNotesModal from './components/ConnectedNotesModal';
+import AmbientAudio from './components/AmbientAudio';
+import { useNotesSync } from './hooks/useNotesSync';
+import { useSettingsSync } from './hooks/useSettingsSync';
 
 export default function NotesApp() {
   const [hydrated, setHydrated] = useState(false);
   const [customColors, setCustomColors] = useState(STARTER_COLORS);
+  const [separatorColors, setSeparatorColors] = useState(STARTER_COLORS);
   const [activeThemeId, setActiveThemeId] = useState('black');
   const [customThemes, setCustomThemes] = useState(STARTER_THEMES);
   const [themeWheelHue, setThemeWheelHue] = useState(220);
@@ -31,6 +42,11 @@ export default function NotesApp() {
   const [modalTint, setModalTint] = useState(100);
   const [separatorColorId, setSeparatorColorId] = useState('none');
   const [titleFocused, setTitleFocused] = useState(false);
+  const [mainBgEffect, setMainBgEffect] = useState('color');
+  const [mainBgImage, setMainBgImage] = useState(null);
+  const [syncUser, setSyncUser] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('idle');
+  const [shareColors, setShareColors] = useState(false);
 
   const [notes, setNotes] = useState(SEED_NOTES);
   const [query, setQuery] = useState('');
@@ -60,10 +76,20 @@ export default function NotesApp() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [similarOpen, setSimilarOpen] = useState(false);
+  const [connectedNotesOpen, setConnectedNotesOpen] = useState(false);
+  const [newNoteSetupOpen, setNewNoteSetupOpen] = useState(false);
+  const [pendingNoteColor, setPendingNoteColor] = useState(null);
+  const [pendingNoteMode, setPendingNoteMode] = useState('note');
+  const [ambientSound, setAmbientSound] = useState('none');
+  const [ambientSoundData, setAmbientSoundData] = useState(null);
+  const [ambientSoundName, setAmbientSoundName] = useState('');
+  const [ambientVolume, setAmbientVolume] = useState(0.5);
   const [noteMenuOpen, setNoteMenuOpen] = useState(false);
-  const [menuColorExpanded, setMenuColorExpanded] = useState(false);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [menuShareInfo, setMenuShareInfo] = useState(false);
+  const [menuReminderExpanded, setMenuReminderExpanded] = useState(false);
   const [selectedTagFilters, setSelectedTagFilters] = useState([]);
+  const [tagFilterMode, setTagFilterMode] = useState('any');
 
   const [pinEnabled, setPinEnabled] = useState(false);
   const [pin, setPin] = useState('');
@@ -77,22 +103,34 @@ export default function NotesApp() {
 
   const [past, setPast] = useState([]);
   const [future, setFuture] = useState([]);
-  const [lastSaved, setLastSaved] = useState('');
   const [justSaved, setJustSaved] = useState(false);
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
   const [wheelLight, setWheelLight] = useState(0.55);
+  const [sepWheelHue, setSepWheelHue] = useState(200);
+  const [sepWheelSat, setSepWheelSat] = useState(0.6);
+  const [sepWheelLight, setSepWheelLight] = useState(0.55);
 
   const nextId = useRef(4);
   const nextItemId = useRef(10);
   const nextColorId = useRef(5);
+  const nextSepColorId = useRef(5);
   const nextThemeId = useRef(2);
   const fileInputRef = useRef(null);
+  const bgImageInputRef = useRef(null);
+  const ambientSoundInputRef = useRef(null);
   const textareaRefs = useRef({});
   const titleRefs = useRef({});
   const addItemRefs = useRef({});
   const tagInputRefs = useRef({});
+  const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus });
+  useSettingsSync({
+    values: { customColors, customThemes, activeThemeId, modalTint, separatorColorId, mainBgEffect, mainBgImage, fontChoice },
+    setters: { customColors: setCustomColors, customThemes: setCustomThemes, activeThemeId: setActiveThemeId, modalTint: setModalTint, separatorColorId: setSeparatorColorId, mainBgEffect: setMainBgEffect, mainBgImage: setMainBgImage, fontChoice: setFontChoice },
+    syncUser,
+    enabled: shareColors,
+  });
   const scale = SCALE_MAP[SIZE_STEPS[noteSizeIdx]];
   const textScale = SCALE_MAP[SIZE_STEPS[textSizeIdx]];
   const s = (n) => Math.round(n * scale);
@@ -102,13 +140,12 @@ export default function NotesApp() {
   const theme = computeThemeFromColor(activePreset.hex, activePreset.cardLighter);
 
   function colorHexOf(colorId) { return customColors.find((c) => c.id === colorId)?.hex || customColors[0]?.hex || '#5B9BB8'; }
-  function colorLabelOf(colorId) { return customColors.find((c) => c.id === colorId)?.label || 'Color'; }
 
   useEffect(() => {
     const savedNotes = loadLocal(NOTES_KEY);
-    let initialNotes = SEED_NOTES;
     if (Array.isArray(savedNotes) && savedNotes.length) {
-      initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', ...n }));
+      let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], ...n }));
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
       setNotes(initialNotes);
       nextId.current = Math.max(4, ...initialNotes.map((n) => (n.id || 0) + 1));
       const existingItemNums = initialNotes.flatMap((n) => (n.checklist || []).map((it) => parseInt(String(it.id).replace(/\D/g, ''), 10) || 0));
@@ -129,14 +166,21 @@ export default function NotesApp() {
       });
       if (hadDuplicates) setNotes(initialNotes);
     }
-    setLastSaved(JSON.stringify(initialNotes));
     const savedSettings = loadLocal(SETTINGS_KEY);
     if (savedSettings) {
       if (Array.isArray(savedSettings.customColors) && savedSettings.customColors.length) { setCustomColors(savedSettings.customColors); nextColorId.current = savedSettings.customColors.length + 1; }
+      if (Array.isArray(savedSettings.separatorColors) && savedSettings.separatorColors.length) { setSeparatorColors(savedSettings.separatorColors); nextSepColorId.current = savedSettings.separatorColors.length + 1; }
       if (savedSettings.activeThemeId) setActiveThemeId(savedSettings.activeThemeId);
       if (Array.isArray(savedSettings.customThemes) && savedSettings.customThemes.length) setCustomThemes(savedSettings.customThemes);
       if (typeof savedSettings.modalTint === 'number') setModalTint(savedSettings.modalTint);
       if (savedSettings.separatorColorId) setSeparatorColorId(savedSettings.separatorColorId);
+      if (savedSettings.mainBgEffect) setMainBgEffect(savedSettings.mainBgEffect);
+      if (typeof savedSettings.mainBgImage === 'string') setMainBgImage(savedSettings.mainBgImage);
+      if (savedSettings.ambientSound) setAmbientSound(savedSettings.ambientSound);
+      if (typeof savedSettings.ambientSoundData === 'string') setAmbientSoundData(savedSettings.ambientSoundData);
+      if (typeof savedSettings.ambientSoundName === 'string') setAmbientSoundName(savedSettings.ambientSoundName);
+      if (typeof savedSettings.ambientVolume === 'number') setAmbientVolume(savedSettings.ambientVolume);
+      if (typeof savedSettings.shareColors === 'boolean') setShareColors(savedSettings.shareColors);
       if (savedSettings.view) setView(savedSettings.view);
       if (savedSettings.sortBy) setSortBy(savedSettings.sortBy);
       if (typeof savedSettings.noteSizeIdx === 'number') setNoteSizeIdx(savedSettings.noteSizeIdx);
@@ -156,11 +200,30 @@ export default function NotesApp() {
     setHydrated(true);
   }, []);
 
-  useEffect(() => { if (!hydrated || !autoSave) return; if (saveLocal(NOTES_KEY, notes)) setLastSaved(JSON.stringify(notes)); }, [notes, hydrated, autoSave]);
+  useEffect(() => {
+    if (!hydrated || !autoSave) return;
+    saveLocal(NOTES_KEY, notes);
+  }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
-    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, separatorColorId, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
-  }, [customColors, customThemes, activeThemeId, modalTint, separatorColorId, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
+    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
+  }, [customColors, customThemes, activeThemeId, modalTint, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    function checkReminders() {
+      const now = Date.now();
+      const due = notes.filter((n) => n.reminderAt && !n.reminderNotified && n.reminderAt <= now && !n.deletedAt);
+      if (due.length === 0) return;
+      setNotes((prev) => prev.map((n) => (due.some((d) => d.id === n.id) ? { ...n, reminderNotified: true } : n)));
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        due.forEach((n) => new Notification(n.title || 'Reminder', { body: previewText(n.body) || 'Note reminder' }));
+      }
+    }
+    checkReminders();
+    const interval = setInterval(checkReminders, 30000);
+    return () => clearInterval(interval);
+  }, [notes, hydrated]);
 
   useEffect(() => {
     function onKeyDown(e) {
@@ -177,12 +240,12 @@ export default function NotesApp() {
   const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden), [notes]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
   const trashedNotes = useMemo(() => notes.filter((n) => n.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt), [notes]);
-  const unsavedChanges = JSON.stringify(notes) !== lastSaved;
   const colorOrder = useMemo(() => customColors.reduce((acc, c, i) => ({ ...acc, [c.id]: i }), {}), [customColors]);
   const editingNote = notes.find((n) => n.id === editingId) || null;
 
   useEffect(() => {
     if (editingNote) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- seeds the draft fields when a note is opened
       setDraftTitle(editingNote.title);
       setDraftBody(editingNote.body);
     }
@@ -199,7 +262,11 @@ export default function NotesApp() {
     const q = query.trim().toLowerCase();
     let base = !q ? liveNotes : liveNotes.filter((n) => n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q) || (n.checklist || []).some((it) => it.text.toLowerCase().includes(q)));
     if (selectedTagFilters.length > 0) {
-      base = base.filter((n) => (n.tags || []).some((t) => selectedTagFilters.includes(t)));
+      base = base.filter((n) => (
+        tagFilterMode === 'all'
+          ? selectedTagFilters.every((t) => (n.tags || []).includes(t))
+          : (n.tags || []).some((t) => selectedTagFilters.includes(t))
+      ));
     }
     const compare = (a, b) => {
       switch (sortBy) {
@@ -213,7 +280,7 @@ export default function NotesApp() {
     };
     const sorted = [...base].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || compare(a, b));
     return sorted;
-  }, [liveNotes, query, sortBy, colorOrder, selectedTagFilters]);
+  }, [liveNotes, query, sortBy, colorOrder, selectedTagFilters, tagFilterMode]);
 
   const similarPairs = useMemo(() => {
     const withWords = liveNotes.map((n) => ({ note: n, words: wordsOf(n) }));
@@ -247,14 +314,13 @@ export default function NotesApp() {
     });
   }
   function manualSave() {
-    if (saveLocal(NOTES_KEY, notes)) { setLastSaved(JSON.stringify(notes)); setJustSaved(true); setTimeout(() => setJustSaved(false), 1400); }
+    if (saveLocal(NOTES_KEY, notes)) { setJustSaved(true); setTimeout(() => setJustSaved(false), 1400); }
   }
   function saveCurrentNote() {
     if (!editingNote) { manualSave(); return; }
     const updatedNotes = notes.map((n) => (n.id === editingNote.id ? { ...n, title: draftTitle, body: draftBody, updatedAt: Date.now() } : n));
     setNotes(updatedNotes);
     if (saveLocal(NOTES_KEY, updatedNotes)) {
-      setLastSaved(JSON.stringify(updatedNotes));
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 1400);
     }
@@ -264,14 +330,41 @@ export default function NotesApp() {
     }
   }
 
-  function addNote() {
+  function openNewNoteSetup() {
+    const color = defaultColor === 'random' ? customColors[Math.floor(Math.random() * customColors.length)]?.id : defaultColor;
+    setPendingNoteColor(color || customColors[0]?.id);
+    setPendingNoteMode('note');
+    setNewNoteSetupOpen(true);
+  }
+  function addNote(color, mode) {
     pushHistory();
     const id = nextId.current++;
-    const color = defaultColor === 'random' ? customColors[Math.floor(Math.random() * customColors.length)]?.id : defaultColor;
     const now = Date.now();
-    setNotes((prev) => [{ id, title: '', body: '', mode: 'note', checklist: [], pinned: false, hidden: false, tags: [], color: color || customColors[0]?.id, createdAt: now, updatedAt: now }, ...prev]);
+    setNotes((prev) => [{ id, title: '', body: '', mode: mode || 'note', checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], color: color || customColors[0]?.id, createdAt: now, updatedAt: now }, ...prev]);
     setEditingId(id);
+    setNewNoteSetupOpen(false);
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
+  }
+
+  function copySharedNoteToMine(cloudNote) {
+    pushHistory();
+    const id = nextId.current++;
+    const now = Date.now();
+    setNotes((prev) => [{
+      id,
+      title: cloudNote.title || '',
+      body: cloudNote.body || '',
+      mode: cloudNote.mode || 'note',
+      checklist: cloudNote.checklist || [],
+      pinned: false,
+      hidden: false,
+      tags: cloudNote.tags || [],
+      voiceNotes: cloudNote.voice_notes || [],
+      color: cloudNote.color || customColors[0]?.id,
+      createdAt: now,
+      updatedAt: now,
+    }, ...prev]);
+    setConnectedNotesOpen(false);
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
@@ -279,7 +372,7 @@ export default function NotesApp() {
     pushHistory();
     setEditingId(note.id);
     setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode });
-    setNoteMenuOpen(false); setMenuColorExpanded(false); setMenuShareInfo(false); setPendingClose(false); setTitleFocused(false);
+    setNoteMenuOpen(false); setColorPickerOpen(false); setMenuShareInfo(false); setMenuReminderExpanded(false); setPendingClose(false); setTitleFocused(false);
   }
   function noteChangedSincePreEdit() {
     if (!preEditSnapshot || !editingNote) return false;
@@ -298,7 +391,7 @@ export default function NotesApp() {
   function finalizeClose(discard) {
     if (discard && preEditSnapshot) {
       updateNote(preEditSnapshot.id, { title: preEditSnapshot.title, body: preEditSnapshot.body, checklist: preEditSnapshot.checklist, color: preEditSnapshot.color, mode: preEditSnapshot.mode });
-    } else {
+    } else if (noteChangedSincePreEdit()) {
       saveCurrentNote();
     }
     setEditingId(null);
@@ -338,9 +431,24 @@ export default function NotesApp() {
     setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, checklist: [...(n.checklist || []), newItem], updatedAt: Date.now() } : n)));
     if (input) input.value = '';
   }
-  function setNoteColor(note, colorId) { pushHistory(); updateNote(note.id, { color: colorId }); setMenuColorExpanded(false); setNoteMenuOpen(false); }
+  function setNoteColor(note, colorId) { pushHistory(); updateNote(note.id, { color: colorId }); setColorPickerOpen(false); }
   function toggleNoteMode(note) { pushHistory(); const order = ['note', 'list', 'both']; setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, mode: order[(order.indexOf(n.mode || 'note') + 1) % order.length], updatedAt: Date.now() } : n))); }
   function togglePin(note) { pushHistory(); updateNote(note.id, { pinned: !note.pinned }); setNoteMenuOpen(false); }
+  function toDatetimeLocal(ts) {
+    const d = new Date(ts - new Date().getTimezoneOffset() * 60000);
+    return d.toISOString().slice(0, 16);
+  }
+  function formatReminder(ts) {
+    return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  function setNoteReminder(note, ts) {
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission();
+    pushHistory();
+    updateNote(note.id, { reminderAt: ts, reminderNotified: false });
+  }
+  function clearNoteReminder(note) { pushHistory(); updateNote(note.id, { reminderAt: null, reminderNotified: false }); }
+  function addVoiceNote(note, clip) { pushHistory(); updateNote(note.id, { voiceNotes: [...(note.voiceNotes || []), clip] }); }
+  function deleteVoiceNote(note, clipId) { pushHistory(); updateNote(note.id, { voiceNotes: (note.voiceNotes || []).filter((c) => c.id !== clipId) }); }
   function hideNote(note) { pushHistory(); updateNote(note.id, { hidden: true }); setEditingId(null); }
   function unhideNote(id) { pushHistory(); updateNote(id, { hidden: false }); }
   function addTag(note, tag) {
@@ -353,19 +461,41 @@ export default function NotesApp() {
     pushHistory();
     setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, tags: n.tags.filter((t) => t !== tag), updatedAt: Date.now() } : n)));
   }
+  function downloadBlob(content, filename, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  }
+  function safeFileName(title) { return (title || 'note').replace(/[^a-z0-9-_ ]/gi, '').trim() || 'note'; }
   function exportNoteAsText(note) {
     const lines = [note.title || 'Untitled', ''];
     if (note.body) lines.push(previewText(note.body).split('. ').join('.\n'), '');
     if (note.checklist && note.checklist.length) {
       note.checklist.forEach((it) => lines.push(`[${it.checked ? 'x' : ' '}] ${it.text}`));
     }
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${(note.title || 'note').replace(/[^a-z0-9-_ ]/gi, '').trim() || 'note'}.txt`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    downloadBlob(lines.join('\n'), `${safeFileName(note.title)}.txt`, 'text/plain');
     setNoteMenuOpen(false);
+  }
+  function noteToMarkdown(note) {
+    const lines = [`# ${note.title || 'Untitled'}`, ''];
+    if (note.body) lines.push(note.body, '');
+    if (note.checklist && note.checklist.length) {
+      note.checklist.forEach((it) => lines.push(`- [${it.checked ? 'x' : ' '}] ${it.text}`));
+      lines.push('');
+    }
+    if (note.tags && note.tags.length) lines.push(note.tags.map((t) => `#${t}`).join(' '));
+    return lines.join('\n').trim() + '\n';
+  }
+  function exportNoteAsMarkdown(note) {
+    downloadBlob(noteToMarkdown(note), `${safeFileName(note.title)}.md`, 'text/markdown');
+    setNoteMenuOpen(false);
+  }
+  function exportAllAsMarkdown() {
+    const content = liveNotes.map(noteToMarkdown).join('\n---\n\n');
+    downloadBlob(content, `notes-export-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
   }
 
   function moveToTrash(id) {
@@ -379,24 +509,41 @@ export default function NotesApp() {
   function deleteForever(id) {
     if (!window.confirm('Permanently delete this note? This cannot be undone.')) return;
     pushHistory();
+    const note = notes.find((n) => n.id === id);
+    if (note?.cloudId) deleteCloudNote(note.cloudId);
     setNotes((prev) => prev.filter((n) => n.id !== id));
   }
   function emptyTrash() {
     if (trashedNotes.length === 0) return;
     if (!window.confirm(`Permanently delete all ${trashedNotes.length} note(s) in Trash?`)) return;
     pushHistory();
+    trashedNotes.forEach((n) => { if (n.cloudId) deleteCloudNote(n.cloudId); });
     setNotes((prev) => prev.filter((n) => !n.deletedAt));
   }
 
   function exportAll() {
     const payload = { version: 9, notes, customColors, customThemes, settings: { activeThemeId, modalTint, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, similarThreshold } };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `notes-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    downloadBlob(JSON.stringify(payload, null, 2), `notes-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
   }
   function triggerImport() { fileInputRef.current?.click(); }
+  function triggerBgImageUpload() { bgImageInputRef.current?.click(); }
+  function handleBgImageFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setMainBgImage(reader.result); setMainBgEffect('image'); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+  function triggerAmbientSoundUpload() { ambientSoundInputRef.current?.click(); }
+  function handleAmbientSoundFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { setAmbientSoundData(reader.result); setAmbientSoundName(file.name); setAmbientSound('upload'); };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
   function handleImportFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -420,6 +567,9 @@ export default function NotesApp() {
           createdAt: typeof n.createdAt === 'number' ? n.createdAt : now,
           updatedAt: typeof n.updatedAt === 'number' ? n.updatedAt : now,
           deletedAt: typeof n.deletedAt === 'number' ? n.deletedAt : null,
+          reminderAt: typeof n.reminderAt === 'number' ? n.reminderAt : null,
+          reminderNotified: !!n.reminderNotified,
+          voiceNotes: Array.isArray(n.voiceNotes) ? n.voiceNotes : [],
         }));
         pushHistory();
         setNotes(cleaned);
@@ -452,20 +602,6 @@ export default function NotesApp() {
     e.target.value = '';
   }
 
-  function toggleStrike(note) {
-    const ta = textareaRefs.current[note.id];
-    if (!ta) return;
-    const { selectionStart, selectionEnd, value } = ta;
-    if (selectionStart === selectionEnd) return;
-    const selected = value.slice(selectionStart, selectionEnd);
-    const isStruck = selected.startsWith('~~') && selected.endsWith('~~');
-    const replacement = isStruck ? selected.slice(2, -2) : `~~${selected}~~`;
-    let newValue = value.slice(0, selectionStart) + replacement + value.slice(selectionEnd);
-    if (autoMoveCompleted) newValue = reorderBodyByStrike(newValue);
-    setDraftBody(newValue);
-    requestAnimationFrame(() => { ta.focus(); if (!autoMoveCompleted) ta.setSelectionRange(selectionStart, selectionStart + replacement.length); });
-  }
-
   function saveCustomColor() {
     if (customColors.length >= MAX_CUSTOM) return;
     const [r, g, b] = hslToRgb(wheelHue, wheelSat, wheelLight);
@@ -473,6 +609,13 @@ export default function NotesApp() {
   }
   function deleteCustomColor(id) { if (customColors.length <= 1) return; setCustomColors((prev) => prev.filter((c) => c.id !== id)); }
   function renameCustomColor(id, label) { setCustomColors((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c))); }
+  function deleteSeparatorColor(id) {
+    if (separatorColors.length <= 1) return;
+    setSeparatorColors((prev) => prev.filter((c) => c.id !== id));
+    if (separatorColorId === id) setSeparatorColorId('none');
+  }
+  function renameSeparatorColor(id, label) { setSeparatorColors((prev) => prev.map((c) => (c.id === id ? { ...c, label } : c))); }
+  function separatorColorHexOf(colorId) { return separatorColors.find((c) => c.id === colorId)?.hex || separatorColors[0]?.hex || '#5B9BB8'; }
 
   function saveCustomTheme() {
     if (customThemes.length >= MAX_CUSTOM) return;
@@ -540,30 +683,57 @@ export default function NotesApp() {
           <button onClick={() => hideNote(note)} style={rowStyle}><EyeOff size={15} /> Hide note</button>
 
           <div style={{ borderTop: borderStyle, borderBottom: borderStyle, margin: '4px 0' }}>
-            <button onClick={() => setMenuColorExpanded((v) => !v)} style={rowStyle}><Palette size={15} /> Color</button>
-            {menuColorExpanded && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 12px 8px' }}>
-                {customColors.map((c) => (
-                  <button key={c.id} onClick={() => setNoteColor(note, c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: '50%', background: c.hex, border: c.id === note.color ? `2px solid ${text}` : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
-                ))}
+            <button onClick={() => setMenuReminderExpanded((v) => !v)} style={rowStyle}>
+              <Bell size={15} /> {note.reminderAt ? `Reminder: ${formatReminder(note.reminderAt)}` : 'Set reminder'}
+            </button>
+            {menuReminderExpanded && (
+              <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input
+                  type="datetime-local"
+                  defaultValue={note.reminderAt ? toDatetimeLocal(note.reminderAt) : ''}
+                  onChange={(e) => { if (e.target.value) setNoteReminder(note, new Date(e.target.value).getTime()); }}
+                  style={{ background: bg, color: text, border: borderStyle, borderRadius: 8, padding: '6px 8px', fontSize: 12, outline: 'none', colorScheme: dark ? 'dark' : 'light' }}
+                />
+                {note.reminderAt && (
+                  <button onClick={() => { clearNoteReminder(note); setMenuReminderExpanded(false); }} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, cursor: 'pointer', padding: 0, fontSize: 12 }}>
+                    <BellOff size={12} /> Clear reminder
+                  </button>
+                )}
               </div>
             )}
           </div>
 
-          <button onClick={() => exportNoteAsText(note)} style={rowStyle}><FileText size={15} /> Open as text file</button>
+          <button onClick={() => exportNoteAsText(note)} style={rowStyle}><FileText size={15} /> Export as text (.txt)</button>
+          <button onClick={() => exportNoteAsMarkdown(note)} style={rowStyle}><FileText size={15} /> Export as Markdown (.md)</button>
 
           <button onClick={() => { setSimilarOpen(true); setNoteMenuOpen(false); }} style={rowStyle}><GitCompare size={15} /> Similar notes</button>
 
           <button onClick={() => setMenuShareInfo((v) => !v)} style={rowStyle}><Share2 size={15} /> Share</button>
-          {menuShareInfo && (
-            <p style={{ fontSize: 11, color: muted, padding: '0 12px 8px', margin: 0 }}>
-              Real-time sharing needs an account and sync system, which isn't built yet — noted for a later phase.
-            </p>
-          )}
+          {menuShareInfo && <ShareNotePicker note={note} syncUser={syncUser} text={text} muted={muted} />}
 
           <button onClick={() => moveToTrash(note.id)} style={{ ...rowStyle, color: '#E8735F' }}><Trash2 size={15} /> Delete</button>
         </div>
       </>
+    );
+  }
+
+  function ColorPickerButton(note, iconColor) {
+    return (
+      <div style={{ position: 'relative', display: 'flex', flexShrink: 0 }}>
+        <button onClick={() => setColorPickerOpen((v) => !v)} aria-label="Note color" title="Note color" style={{ background: 'none', border: 'none', color: iconColor, cursor: 'pointer', display: 'flex', padding: 4 }}>
+          <Paintbrush size={17} />
+        </button>
+        {colorPickerOpen && (
+          <>
+            <div onClick={() => setColorPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+            <div style={{ position: 'absolute', top: '100%', left: 0, display: 'flex', flexWrap: 'wrap', gap: 6, width: 150, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: 8, zIndex: 2 }}>
+              {customColors.map((c) => (
+                <button key={c.id} onClick={() => setNoteColor(note, c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: 7, background: c.hex, border: c.id === note.color ? `2px solid ${text}` : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     );
   }
 
@@ -579,7 +749,7 @@ export default function NotesApp() {
     const checklistBlock = (
       <div style={{ flex: mode === 'both' ? '1 1 0' : '1 1 0', minHeight: 0, overflowY: 'auto', borderTop: mode === 'both' ? `1px solid ${noteText}30` : 'none', paddingTop: mode === 'both' ? 8 : 0 }}>
         {(note.checklist || []).map((item) => (
-          <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, margin: '5px 0' }}>
+          <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0', borderBottom: `1px solid ${colorHex}80` }}>
             <Checkbox checked={item.checked} onToggle={() => toggleChecklistItem(note, item.id)} accent={colorHex} mutedColor={noteMuted} />
             <input
               value={item.text}
@@ -593,7 +763,7 @@ export default function NotesApp() {
           </div>
         ))}
         {mode !== 'note' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${colorHex}80` }}>
             <div style={{ width: 17, flexShrink: 0 }} />
             <input
               ref={(el) => (addItemRefs.current[note.id] = el)}
@@ -632,18 +802,22 @@ export default function NotesApp() {
 
         {mode !== 'note' && checklistBlock}
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingTop: 8, gap: 10, flexShrink: 0 }}>
-          <button onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+        <VoiceNotes
+          clips={note.voiceNotes || []}
+          onAdd={(clip) => addVoiceNote(note, clip)}
+          onDelete={(clipId) => deleteVoiceNote(note, clipId)}
+          accent={colorHex}
+          text={noteText}
+          muted={noteMuted}
+        />
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 8, gap: 10, flexShrink: 0 }}>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
             <Undo2 size={17} />
           </button>
-          <button onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
             <Redo2 size={17} />
           </button>
-          {mode !== 'list' && (
-            <button onClick={() => toggleStrike(note)} aria-label="Strikethrough selection" title="Strikethrough selection" style={{ background: 'none', border: 'none', color: noteText, cursor: 'pointer', display: 'flex', padding: 2 }}>
-              <Strikethrough size={17} />
-            </button>
-          )}
         </div>
       </>
     );
@@ -723,6 +897,7 @@ export default function NotesApp() {
               />
             </div>
             {note.pinned && <Pin size={16} style={{ color: headerText, opacity: 0.85, flexShrink: 0 }} />}
+            {ColorPickerButton(note, headerText)}
             <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
               {modeLetter}
             </button>
@@ -743,26 +918,39 @@ export default function NotesApp() {
       );
     }
 
-    const panelBg = mixColors(colorHex, bg, modalTint / 100);
-    const panelText = contrastText(panelBg);
+    const panelTint = mixColors(colorHex, '#000000', modalTint / 100);
+    const panelText = contrastText(panelTint);
+    const panelAlphaHex = Math.round((modalTint / 100) * 255).toString(16).padStart(2, '0');
+    const panelBg = `${colorHex}${panelAlphaHex}`;
     return (
       <div onClick={() => requestClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 60 }}>
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
-            width: '100%', maxWidth: 560, height: '86vh', borderRadius: 18,
+            width: '100%', maxWidth: 560, height: '86vh', borderRadius: 18, overflow: 'hidden',
             background: panelBg, border: `1px solid ${colorHex}70`,
             color: panelText, boxShadow: '0 20px 60px rgba(0,0,0,0.4)', position: 'relative',
             display: 'flex', flexDirection: 'column',
           }}
         >
           <div style={{ padding: `${s(18)}px ${s(20)}px 0`, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <button onClick={() => requestClose()} aria-label="Back" title="Back" style={{ background: 'none', border: 'none', color: panelText, cursor: 'pointer', display: 'flex', padding: 4, marginLeft: -4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <button onClick={() => requestClose()} aria-label="Back" title="Back" style={{ background: 'none', border: 'none', color: panelText, cursor: 'pointer', display: 'flex', padding: 4, marginLeft: -4, flexShrink: 0 }}>
                 <ArrowLeft size={20} />
               </button>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative' }}>
+              <input
+                ref={(el) => (titleRefs.current[note.id] = el)}
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                onKeyDown={(e) => titleKeyDown(e, note)}
+                placeholder="Title"
+                spellCheck={true}
+                autoFocus
+                style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(18), color: panelText, padding: 0 }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', flexShrink: 0 }}>
                 {note.pinned && <Pin size={15} style={{ color: panelText, opacity: 0.7 }} />}
+                {ColorPickerButton(note, panelText)}
                 <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
                   {modeLetter}
                 </button>
@@ -775,23 +963,12 @@ export default function NotesApp() {
                 {NoteMenu(note)}
               </div>
             </div>
-
-            <input
-              ref={(el) => (titleRefs.current[note.id] = el)}
-              value={draftTitle}
-              onChange={(e) => setDraftTitle(e.target.value)}
-              onKeyDown={(e) => titleKeyDown(e, note)}
-              placeholder="Title"
-              spellCheck={true}
-              autoFocus
-              style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(24), color: panelText, marginBottom: 8, padding: 0 }}
-            />
           </div>
 
           <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: `0 ${s(20)}px` }}>
-            {EditorBody(note, colorHex, panelBg)}
+            {EditorBody(note, colorHex, panelTint)}
           </div>
-          {TagFooter(note, panelBg)}
+          {TagFooter(note, panelTint)}
           {PendingCloseOverlay(true)}
         </div>
       </div>
@@ -814,7 +991,9 @@ export default function NotesApp() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: bodyFont, transition: 'background 0.3s, color 0.3s' }}>
+    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: bodyFont, transition: 'background 0.3s, color 0.3s', position: 'relative', overflow: 'hidden' }}>
+      <MainBackdrop effect={mainBgEffect} image={mainBgImage} particleColor={contrastText(bg)} />
+      <AmbientAudio enabled={ambientSound === 'upload' && !!ambientSoundData} dataUrl={ambientSoundData} volume={ambientVolume} />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
         .note-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
@@ -823,9 +1002,18 @@ export default function NotesApp() {
         textarea, input, select { font-family: inherit; }
         ::selection { background: #E8735F55; }
         ::placeholder { color: ${muted}; opacity: 1; }
+
+        input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: ${borderColor}; outline: none; cursor: pointer; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #E8735F; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.35); cursor: pointer; }
+        input[type=range]::-moz-range-track { height: 6px; border-radius: 999px; background: ${borderColor}; }
+        input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #E8735F; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.35); cursor: pointer; }
+
+        input[type=checkbox] { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; flex-shrink: 0; border-radius: 5px; border: 1.5px solid ${muted}; background: transparent; cursor: pointer; position: relative; transition: background 0.15s ease, border-color 0.15s ease; }
+        input[type=checkbox]:checked { background: #E8735F; border-color: #E8735F; }
+        input[type=checkbox]:checked::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
       `}</style>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px` }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Notes</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 200, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -853,12 +1041,25 @@ export default function NotesApp() {
               <button onClick={() => setView('list')} aria-label="List view" title="List view" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: view === 'list' ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Rows3 size={16} /></button>
             </div>
 
+            <div style={{ display: 'flex', border: borderStyle, borderRadius: 10, overflow: 'hidden' }}>
+              <button onClick={() => setFullScreenEditor(false)} aria-label="Popup note editor" title="Popup note editor" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: !fullScreenEditor ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Square size={16} /></button>
+              <button onClick={() => setFullScreenEditor(true)} aria-label="Fullscreen note editor" title="Fullscreen note editor" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: fullScreenEditor ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Maximize2 size={16} /></button>
+            </div>
+
             <button onClick={() => setSimilarOpen(true)} aria-label="Find similar notes" title="Find similar notes" style={toolbarBtnStyle(false)}>
               <GitCompare size={16} />
               {similarPairs.length > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#E8735F', color: '#fff', borderRadius: 999, fontSize: 9, minWidth: 15, height: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{similarPairs.length}</span>}
             </button>
+            {syncUser && (
+              <button onClick={() => setConnectedNotesOpen(true)} aria-label="Connected notes" title="Connected notes" style={toolbarBtnStyle(false)}>
+                <Users size={16} />
+              </button>
+            )}
             {pinEnabled && <button onClick={() => setLocked(true)} aria-label="Lock now" title="Lock now" style={toolbarBtnStyle(false)}><Lock size={16} /></button>}
-            <button onClick={() => setSettingsOpen(true)} aria-label="Settings" title="Settings" style={toolbarBtnStyle(false)}><Settings size={16} /></button>
+            <button onClick={() => setSettingsOpen(true)} aria-label="Settings" title={syncUser ? `Settings — signed in as ${syncUser.email}` : 'Settings'} style={toolbarBtnStyle(false)}>
+              <Settings size={16} />
+              {syncUser && <span style={{ position: 'absolute', bottom: -2, right: -2, width: 8, height: 8, borderRadius: '50%', background: '#7FA671', border: `1.5px solid ${elevated}` }} />}
+            </button>
           </div>
         </div>
 
@@ -870,47 +1071,60 @@ export default function NotesApp() {
           <div style={{ columns: `${s(220)}px`, columnGap: 16 }}>
             {filtered.map((note) => {
               const colorHex = colorHexOf(note.color);
-              const cardBg = colorHex;
-              const noteText = contrastText(cardBg);
+              const noteText = text;
               return (
                 <div
                   key={note.id}
                   className="note-card"
                   style={{
-                    breakInside: 'avoid', marginBottom: 16, borderRadius: 14, padding: `${s(16)}px ${s(16)}px ${s(12)}px`,
-                    background: cardBg, border: `1px solid ${colorHex}70`,
+                    breakInside: 'avoid', marginBottom: 16, borderRadius: 14, overflow: 'hidden', display: 'flex',
+                    background: elevated, border: borderStyle,
                     boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)', cursor: 'pointer', position: 'relative', color: noteText,
                   }}
                   onClick={() => startEditing(note)}
                 >
-                  {note.pinned && <Pin size={13} style={{ position: 'absolute', top: 10, right: 10, opacity: 0.6, color: noteText }} />}
-                  <div style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), marginBottom: 4, paddingRight: note.pinned ? 16 : 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}</div>
-                  {(() => {
-                    const plan = previewPlan(note);
-                    return (
-                      <>
-                        {plan.showBody && note.body && (
-                          <div style={{ fontSize: fz(14), lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                            {previewText(note.body)}
-                          </div>
+                  <div style={{ width: 5, flexShrink: 0, background: colorHex }} />
+                  <div style={{ flex: 1, minWidth: 0, padding: `${s(16)}px ${s(16)}px ${s(12)}px` }}>
+                    {note.pinned && <Pin size={13} style={{ position: 'absolute', top: 10, right: 10, opacity: 0.6, color: noteText }} />}
+                    <div style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), marginBottom: 4, paddingRight: note.pinned ? 16 : 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}</div>
+                    {(() => {
+                      const plan = previewPlan(note);
+                      return (
+                        <>
+                          {plan.showBody && note.body && (
+                            <div style={{ fontSize: fz(14), lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                              {previewText(note.body)}
+                            </div>
+                          )}
+                          {plan.showChecklist && (note.checklist || []).length > 0 && PreviewChecklist(note)}
+                        </>
+                      );
+                    })()}
+                    {note.reminderAt && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: fz(11), color: note.reminderAt <= Date.now() ? '#E8735F' : `${noteText}90` }}>
+                        <Bell size={11} /> {formatReminder(note.reminderAt)}
+                      </div>
+                    )}
+                    {(note.voiceNotes?.length > 0 || (note.tags && note.tags.length > 0)) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {note.voiceNotes?.length > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                            <Mic size={10} /> voice note
+                          </span>
                         )}
-                        {plan.showChecklist && (note.checklist || []).length > 0 && PreviewChecklist(note)}
-                      </>
-                    );
-                  })()}
-                  {note.tags && note.tags.length > 0 && (
-                    <div style={{ display: 'flex', gap: 5, marginTop: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                      {note.tags.map((tag) => (
-                        <button
-                          key={tag}
-                          onClick={(e) => { e.stopPropagation(); setSelectedTagFilters([tag]); }}
-                          style={{ fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, border: 'none', borderRadius: 999, padding: '2px 7px', flexShrink: 0, cursor: 'pointer' }}
-                        >
-                          #{tag}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                        {note.tags?.slice(0, 2).map((tag) => (
+                          <button
+                            key={tag}
+                            onClick={(e) => { e.stopPropagation(); setSelectedTagFilters([tag]); }}
+                            style={{ fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, border: 'none', borderRadius: 999, padding: '2px 7px', flexShrink: 0, cursor: 'pointer' }}
+                          >
+                            #{tag}
+                          </button>
+                        ))}
+                        {note.tags?.length > 2 && <span style={{ fontSize: fz(12), color: `${noteText}99`, flexShrink: 0 }}>…</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -919,19 +1133,44 @@ export default function NotesApp() {
           <div style={{ borderRadius: 12, overflow: 'hidden', border: borderStyle }}>
             {filtered.map((note, idx) => {
               const colorHex = colorHexOf(note.color);
-              const rowBg = colorHex;
-              const noteText = contrastText(rowBg);
-              const sepHex = separatorColorId !== 'none' ? colorHexOf(separatorColorId) : null;
+              const noteText = text;
+              const sepHex = separatorColorId !== 'none' ? separatorColorHexOf(separatorColorId) : null;
               return (
-                <div key={note.id} className="note-row" style={{ display: 'flex', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: rowBg, cursor: 'pointer', color: noteText }} onClick={() => startEditing(note)}>
+                <div key={note.id} className="note-row" style={{ display: 'flex', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText }} onClick={() => startEditing(note)}>
                   <div style={{ width: 4, flexShrink: 0, background: colorHex }} />
-                  <div style={{ flex: 1, padding: `${s(14)}px ${s(16)}px` }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <span style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ flex: 1, minWidth: 0, padding: `${s(14)}px ${s(16)}px` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {note.pinned && <Pin size={13} style={{ opacity: 0.6, flexShrink: 0 }} />}
                         {note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}
                       </span>
-                      <span style={{ fontSize: fz(12), color: `${noteText}99`, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDate(note.updatedAt)}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, maxWidth: '50%' }}>
+                        {note.reminderAt && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: note.reminderAt <= Date.now() ? '#E8735F' : `${noteText}90`, flexShrink: 0 }}>
+                            <Bell size={11} /> {formatReminder(note.reminderAt)}
+                          </span>
+                        )}
+                        {(note.voiceNotes?.length > 0 || (note.tags && note.tags.length > 0)) && (
+                          <div style={{ display: 'flex', gap: 5, overflow: 'hidden', whiteSpace: 'nowrap', minWidth: 0 }}>
+                            {note.voiceNotes?.length > 0 && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                                <Mic size={10} /> voice note
+                              </span>
+                            )}
+                            {note.tags?.slice(0, 2).map((tag) => (
+                              <button
+                                key={tag}
+                                onClick={(e) => { e.stopPropagation(); setSelectedTagFilters([tag]); }}
+                                style={{ fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, border: 'none', borderRadius: 999, padding: '2px 7px', flexShrink: 0, cursor: 'pointer' }}
+                              >
+                                #{tag}
+                              </button>
+                            ))}
+                            {note.tags?.length > 2 && <span style={{ fontSize: fz(12), color: `${noteText}99`, flexShrink: 0 }}>…</span>}
+                          </div>
+                        )}
+                        <span style={{ fontSize: fz(12), color: `${noteText}99`, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDate(note.updatedAt)}</span>
+                      </div>
                     </div>
                     {(() => {
                       const plan = previewPlan(note);
@@ -950,19 +1189,6 @@ export default function NotesApp() {
                         </>
                       );
                     })()}
-                    {note.tags && note.tags.length > 0 && (
-                      <div style={{ display: 'flex', gap: 5, marginTop: 6, overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                        {note.tags.map((tag) => (
-                          <button
-                            key={tag}
-                            onClick={(e) => { e.stopPropagation(); setSelectedTagFilters([tag]); }}
-                            style={{ fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, border: 'none', borderRadius: 999, padding: '2px 7px', flexShrink: 0, cursor: 'pointer' }}
-                          >
-                            #{tag}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -971,7 +1197,7 @@ export default function NotesApp() {
         )}
       </div>
 
-      <button onClick={addNote} aria-label="Add note" style={{ position: 'fixed', bottom: allTags.length > 0 ? 92 : 28, right: 28, width: 56, height: 56, borderRadius: '50%', background: '#E8735F', color: '#fff', border: 'none', boxShadow: '0 4px 14px rgba(232,115,95,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
+      <button onClick={openNewNoteSetup} aria-label="Add note" style={{ position: 'fixed', bottom: allTags.length > 0 ? 92 : 28, right: 28, width: 56, height: 56, borderRadius: '50%', background: '#E8735F', color: '#fff', border: 'none', boxShadow: '0 4px 14px rgba(232,115,95,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
         <Plus size={24} />
       </button>
 
@@ -980,6 +1206,16 @@ export default function NotesApp() {
           {selectedTagFilters.length > 0 && (
             <button onClick={() => setSelectedTagFilters([])} aria-label="Clear keyword filters" title="Clear keyword filters" style={{ flexShrink: 0, background: 'none', border: borderStyle, borderRadius: 999, padding: '6px 10px', fontSize: 12, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
               <X size={12} /> Clear
+            </button>
+          )}
+          {selectedTagFilters.length > 1 && (
+            <button
+              onClick={() => setTagFilterMode((m) => (m === 'all' ? 'any' : 'all'))}
+              aria-label="Toggle match all/any keywords"
+              title={tagFilterMode === 'all' ? 'Matching notes with ALL selected keywords' : 'Matching notes with ANY selected keyword'}
+              style={{ flexShrink: 0, background: 'none', border: borderStyle, borderRadius: 999, padding: '6px 10px', fontSize: 12, color: muted, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              Match: {tagFilterMode === 'all' ? 'All' : 'Any'}
             </button>
           )}
           {allTags.map((tag) => {
@@ -1001,12 +1237,14 @@ export default function NotesApp() {
       )}
 
       <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFile} style={{ display: 'none' }} />
+      <input ref={bgImageInputRef} type="file" accept="image/*" onChange={handleBgImageFile} style={{ display: 'none' }} />
+      <input ref={ambientSoundInputRef} type="file" accept="audio/*" onChange={handleAmbientSoundFile} style={{ display: 'none' }} />
 
       {NoteEditorModal()}
 
       {settingsOpen && (
         <div onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 440, maxHeight: '88vh', overflowY: 'auto', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 440, maxHeight: '88vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {settingsSection && (
@@ -1015,7 +1253,7 @@ export default function NotesApp() {
                   </button>
                 )}
                 <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>
-                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'text' ? 'Text' : settingsSection === 'other' ? 'Other' : 'Settings'}
+                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'text' ? 'Text' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
                 </h2>
               </div>
               <button onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -1031,6 +1269,9 @@ export default function NotesApp() {
                 </button>
                 <button onClick={() => setSettingsSection('other')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <SlidersHorizontal size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Other</span> <ChevronRight size={16} style={{ color: muted }} />
+                </button>
+                <button onClick={() => setSettingsSection('account')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
+                  <User size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Account</span> <ChevronRight size={16} style={{ color: muted }} />
                 </button>
               </div>
             )}
@@ -1068,11 +1309,6 @@ export default function NotesApp() {
                     })}
                   </div>
                   <div style={{ fontSize: 12, color: muted, marginTop: 6 }}>{activePreset.label}</div>
-
-                  <label style={{ fontSize: 13, color: muted, display: 'block', margin: '16px 0 6px' }}>
-                    Enlarged note transparency: {modalTint}%
-                  </label>
-                  <input type="range" min={5} max={100} value={modalTint} onChange={(e) => setModalTint(Number(e.target.value))} style={{ width: '100%', ...rangeAccentStyle }} />
                 </div>
 
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
@@ -1091,7 +1327,7 @@ export default function NotesApp() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
                     {customColors.map((c) => (
                       <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <div style={{ width: 20, height: 20, borderRadius: '50%', background: c.hex, flexShrink: 0 }} />
+                        <div style={{ width: 20, height: 20, borderRadius: 6, background: c.hex, flexShrink: 0 }} />
                         <input value={c.label} onChange={(e) => renameCustomColor(c.id, e.target.value)} style={{ flex: 1, background: bg, border: borderStyle, borderRadius: 8, padding: '5px 8px', fontSize: 12, color: text, outline: 'none' }} />
                         {customColors.length > 1 && (
                           <button onClick={() => deleteCustomColor(c.id)} aria-label="Delete color" title="Delete color" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 2 }}><X size={13} /></button>
@@ -1104,42 +1340,53 @@ export default function NotesApp() {
                 <div style={{ marginBottom: 4 }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Default color for new notes</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    <button onClick={() => setDefaultColor('random')} title="Random" style={{ width: 26, height: 26, borderRadius: '50%', cursor: 'pointer', background: 'conic-gradient(from 0deg, red, yellow, lime, cyan, blue, magenta, red)', border: defaultColor === 'random' ? `2px solid ${text}` : '2px solid transparent' }} />
+                    <button onClick={() => setDefaultColor('random')} title="Random" style={{ width: 30, height: 30, borderRadius: 9, cursor: 'pointer', background: 'conic-gradient(from 0deg, red, yellow, lime, cyan, blue, magenta, red)', border: defaultColor === 'random' ? `2px solid ${text}` : '2px solid transparent' }} />
                     {customColors.map((c) => (
-                      <button key={c.id} onClick={() => setDefaultColor(c.id)} title={c.label} style={{ width: 26, height: 26, borderRadius: '50%', background: c.hex, cursor: 'pointer', border: defaultColor === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
+                      <button key={c.id} onClick={() => setDefaultColor(c.id)} title={c.label} style={{ width: 30, height: 30, borderRadius: 9, background: c.hex, cursor: 'pointer', border: defaultColor === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
                     ))}
                   </div>
                 </div>
                 <div style={{ marginBottom: 4 }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>List separator color</label>
                   <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <ColorWheel size={110} hue={wheelHue} sat={wheelSat} onChange={(h, sat) => { setWheelHue(h); setWheelSat(sat); }} />
+                    <ColorWheel size={110} hue={sepWheelHue} sat={sepWheelSat} onChange={(h, sat) => { setSepWheelHue(h); setSepWheelSat(sat); }} />
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 120 }}>
                       <label style={{ fontSize: 11, color: muted }}>Lightness</label>
-                      <LightnessSlider hue={wheelHue} sat={wheelSat} value={wheelLight} onChange={setWheelLight} />
+                      <LightnessSlider hue={sepWheelHue} sat={sepWheelSat} value={sepWheelLight} onChange={setSepWheelLight} />
                       <button
                         onClick={() => {
-                          if (customColors.length >= MAX_CUSTOM) return;
-                          const [r, g, b] = hslToRgb(wheelHue, wheelSat, wheelLight);
+                          if (separatorColors.length >= MAX_CUSTOM) return;
+                          const [r, g, b] = hslToRgb(sepWheelHue, sepWheelSat, sepWheelLight);
                           const hex = rgbToHex(r, g, b);
-                          const id = `c${nextColorId.current++}`;
-                          setCustomColors((prev) => [...prev, { id, hex, label: `Color ${prev.length + 1}` }]);
+                          const id = `s${nextSepColorId.current++}`;
+                          setSeparatorColors((prev) => [...prev, { id, hex, label: `Divider ${prev.length + 1}` }]);
                           setSeparatorColorId(id);
                         }}
-                        disabled={customColors.length >= MAX_CUSTOM}
-                        style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: '#E8735F', color: '#fff', fontSize: 12, cursor: customColors.length >= MAX_CUSTOM ? 'default' : 'pointer', opacity: customColors.length >= MAX_CUSTOM ? 0.5 : 1 }}
+                        disabled={separatorColors.length >= MAX_CUSTOM}
+                        style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: '#E8735F', color: '#fff', fontSize: 12, cursor: separatorColors.length >= MAX_CUSTOM ? 'default' : 'pointer', opacity: separatorColors.length >= MAX_CUSTOM ? 0.5 : 1 }}
                       >
                         Save & use for dividers
                       </button>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    <button onClick={() => setSeparatorColorId('none')} title="None" style={{ width: 26, height: 26, borderRadius: '50%', cursor: 'pointer', background: 'transparent', border: separatorColorId === 'none' ? `2px solid ${text}` : borderStyle }} />
-                    {customColors.map((c) => (
-                      <button key={c.id} onClick={() => setSeparatorColorId(c.id)} title={c.label} style={{ width: 26, height: 26, borderRadius: '50%', background: c.hex, cursor: 'pointer', border: separatorColorId === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                    <button onClick={() => setSeparatorColorId('none')} title="None" style={{ width: 30, height: 30, borderRadius: 9, cursor: 'pointer', background: 'transparent', border: separatorColorId === 'none' ? `2px solid ${text}` : borderStyle }} />
+                    {separatorColors.map((c) => (
+                      <button key={c.id} onClick={() => setSeparatorColorId(c.id)} title={c.label} style={{ width: 30, height: 30, borderRadius: 9, background: c.hex, cursor: 'pointer', border: separatorColorId === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
                     ))}
                   </div>
-                  <p style={{ fontSize: 11, color: muted, margin: '8px 0 0' }}>Only shown in list view — grid view doesn't use a separator.</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {separatorColors.map((c) => (
+                      <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 20, height: 20, borderRadius: 6, background: c.hex, flexShrink: 0 }} />
+                        <input value={c.label} onChange={(e) => renameSeparatorColor(c.id, e.target.value)} style={{ flex: 1, background: bg, border: borderStyle, borderRadius: 8, padding: '5px 8px', fontSize: 12, color: text, outline: 'none' }} />
+                        {separatorColors.length > 1 && (
+                          <button onClick={() => deleteSeparatorColor(c.id)} aria-label="Delete color" title="Delete color" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 2 }}><X size={13} /></button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: muted, margin: '8px 0 0' }}>Only shown in list view — grid view doesn't use a separator. This is its own palette, independent from your note colors above.</p>
                 </div>
               </>
             )}
@@ -1180,18 +1427,68 @@ export default function NotesApp() {
             {settingsSection === 'other' && (
               <>
                 <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Enlarged note transparency: {modalTint}%</label>
+                  <input type="range" min={5} max={100} value={modalTint} onChange={(e) => setModalTint(Number(e.target.value))} style={{ width: '100%', ...rangeAccentStyle }} />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
                   <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', ...rangeAccentStyle }} />
+                </div>
+
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Main menu background</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <button onClick={() => setMainBgEffect('color')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: mainBgEffect === 'color' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Ban size={14} /> None
+                    </button>
+                    <button onClick={() => setMainBgEffect('rain')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: mainBgEffect === 'rain' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <CloudRain size={14} /> Rain
+                    </button>
+                    <button onClick={() => setMainBgEffect('stars')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: mainBgEffect === 'stars' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Sparkles size={14} /> Space
+                    </button>
+                    <button onClick={() => (mainBgImage ? setMainBgEffect('image') : triggerBgImageUpload())} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: mainBgEffect === 'image' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <ImageIcon size={14} /> Image
+                    </button>
+                  </div>
+                  {mainBgEffect === 'image' && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                      {mainBgImage && <img src={mainBgImage} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', border: borderStyle }} />}
+                      <button onClick={triggerBgImageUpload} style={{ padding: '7px 10px', borderRadius: 8, border: borderStyle, background: bg, color: text, fontSize: 12, cursor: 'pointer' }}>
+                        {mainBgImage ? 'Change image' : 'Upload image'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Ambient sound (loops while the app is open)</label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <button onClick={() => setAmbientSound('none')} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: ambientSound === 'none' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Ban size={14} /> None
+                    </button>
+                    <button onClick={() => (ambientSoundData ? setAmbientSound('upload') : triggerAmbientSoundUpload())} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: ambientSound === 'upload' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Music size={14} /> Sound
+                    </button>
+                  </div>
+                  {ambientSound === 'upload' && (
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                        {ambientSoundName && <span style={{ fontSize: 12, color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{ambientSoundName}</span>}
+                        <button onClick={triggerAmbientSoundUpload} style={{ padding: '7px 10px', borderRadius: 8, border: borderStyle, background: bg, color: text, fontSize: 12, cursor: 'pointer' }}>
+                          {ambientSoundData ? 'Change sound' : 'Upload sound'}
+                        </button>
+                      </div>
+                      <label style={{ fontSize: 11, color: muted, display: 'block', margin: '10px 0 4px' }}>Volume: {Math.round(ambientVolume * 100)}%</label>
+                      <input type="range" min={0} max={100} value={Math.round(ambientVolume * 100)} onChange={(e) => setAmbientVolume(Number(e.target.value) / 100)} style={{ width: '100%', ...rangeAccentStyle }} />
+                    </>
+                  )}
                 </div>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
                   <input type="checkbox" checked={autoMoveCompleted} onChange={(e) => setAutoMoveCompleted(e.target.checked)} />
                   Auto-move crossed-out text to the bottom (checklist items always do this)
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={fullScreenEditor} onChange={(e) => setFullScreenEditor(e.target.checked)} />
-                  Full-screen note editor (colored header bar, like ColorNote)
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
@@ -1211,6 +1508,36 @@ export default function NotesApp() {
                 {!autoSave && <p style={{ fontSize: 12, color: muted, margin: '-14px 0 20px' }}>Auto-save is off — changes are kept in the app but won't survive a refresh until you save from within a note.</p>}
 
                 <div style={{ borderTop: borderStyle, paddingTop: 16, marginBottom: 16 }}>
+                  <button onClick={openHiddenNotes} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
+                    <EyeOff size={15} /> Hidden notes{hiddenNotes.length > 0 ? ` (${hiddenNotes.length})` : ''}{pinEnabled ? ' — PIN required' : ''}
+                  </button>
+                  <button onClick={() => setTrashOpen(true)} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
+                    <Archive size={15} /> Trash{trashedNotes.length > 0 ? ` (${trashedNotes.length})` : ''}
+                  </button>
+                </div>
+
+                <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Backup (notes, colors, settings)</label>
+                  <button onClick={exportAll} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Export backup (.json)</button>
+                  <button onClick={exportAllAsMarkdown} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><FileText size={15} /> Export all notes (.md)</button>
+                  <button onClick={triggerImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Upload size={15} /> Import backup (.json)</button>
+                  <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>Importing replaces all current notes — export first if you want a copy of what's there now.</p>
+                </div>
+              </>
+            )}
+
+            {settingsSection === 'account' && (
+              <>
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} />
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, cursor: 'pointer', paddingBottom: 18, borderBottom: borderStyle }}>
+                  <input type="checkbox" checked={shareColors} onChange={(e) => setShareColors(e.target.checked)} />
+                  Shared colors — sync my colors &amp; themes across my signed-in devices
+                </label>
+
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
                     <input type="checkbox" checked={pinEnabled} onChange={(e) => { if (e.target.checked) setShowPinSetup(true); else removePin(); }} />
                     Lock the app with a PIN
@@ -1224,21 +1551,12 @@ export default function NotesApp() {
                     </div>
                   )}
                   {pinEnabled && !showPinSetup && <button onClick={removePin} style={{ marginTop: 8, background: 'none', border: 'none', color: muted, fontSize: 13, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Remove PIN</button>}
-                  <p style={{ fontSize: 11, color: muted, margin: '8px 0 0' }}>This locks the app screen only — it's a basic deterrent, not real encryption.</p>
-
-                  <button onClick={openHiddenNotes} style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
-                    <EyeOff size={15} /> Hidden notes{hiddenNotes.length > 0 ? ` (${hiddenNotes.length})` : ''}{pinEnabled ? ' — PIN required' : ''}
-                  </button>
-                  <button onClick={() => setTrashOpen(true)} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
-                    <Archive size={15} /> Trash{trashedNotes.length > 0 ? ` (${trashedNotes.length})` : ''}
-                  </button>
+                  <p style={{ fontSize: 11, color: muted, margin: '8px 0 0' }}>This locks the app screen only — it's a basic deterrent, not real encryption. It's device-specific and won't sync to your other devices.</p>
                 </div>
 
-                <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Backup (notes, colors, settings)</label>
-                  <button onClick={exportAll} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Export backup (.json)</button>
-                  <button onClick={triggerImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Upload size={15} /> Import backup (.json)</button>
-                  <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>Importing replaces all current notes — export first if you want a copy of what's there now.</p>
+                <div>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Connected accounts</label>
+                  <ConnectedAccounts syncUser={syncUser} text={text} muted={muted} bg={bg} borderStyle={borderStyle} />
                 </div>
               </>
             )}
@@ -1248,7 +1566,7 @@ export default function NotesApp() {
 
       {trashOpen && (
         <div onClick={() => setTrashOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Trash</h2>
               <button onClick={() => setTrashOpen(false)} aria-label="Close trash" title="Close trash" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -1300,7 +1618,7 @@ export default function NotesApp() {
 
       {hiddenOpen && (
         <div onClick={() => setHiddenOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Hidden notes</h2>
               <button onClick={() => setHiddenOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -1327,7 +1645,7 @@ export default function NotesApp() {
 
       {similarOpen && (
         <div onClick={() => setSimilarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '80vh', overflowY: 'auto', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Similar notes</h2>
               <button onClick={() => setSimilarOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -1349,6 +1667,40 @@ export default function NotesApp() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {connectedNotesOpen && (
+        <ConnectedNotesModal
+          syncUser={syncUser}
+          onClose={() => setConnectedNotesOpen(false)}
+          onCopy={copySharedNoteToMine}
+          text={text}
+          muted={muted}
+          bg={bg}
+          elevated={elevated}
+          borderStyle={borderStyle}
+        />
+      )}
+
+      {newNoteSetupOpen && (
+        <div onClick={() => setNewNoteSetupOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 340, background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+            <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 20, margin: '0 0 16px' }}>New note</h2>
+            <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Color</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
+              {customColors.map((c) => (
+                <button key={c.id} onClick={() => setPendingNoteColor(c.id)} title={c.label} style={{ width: 30, height: 30, borderRadius: 9, background: c.hex, cursor: 'pointer', border: pendingNoteColor === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
+              ))}
+            </div>
+            <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Type</label>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+              {[{ v: 'note', l: 'Note' }, { v: 'list', l: 'List' }, { v: 'both', l: 'Both' }].map((opt) => (
+                <button key={opt.v} onClick={() => setPendingNoteMode(opt.v)} style={{ flex: 1, padding: '9px 8px', borderRadius: 10, border: pendingNoteMode === opt.v ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>{opt.l}</button>
+              ))}
+            </div>
+            <button onClick={() => addNote(pendingNoteColor, pendingNoteMode)} style={{ width: '100%', background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}>Create note</button>
           </div>
         </div>
       )}
