@@ -10,9 +10,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'pwa-icon.svg'],
       manifest: {
-        name: 'Notes',
-        short_name: 'Notes',
-        description: 'A ColorNote-style notes app with checklists, tags, and reminders.',
+        name: 'Makinote',
+        short_name: 'Makinote',
+        description: 'A notes app with checklists, tags, reminders, and voice notes.',
         theme_color: '#0A0A0A',
         background_color: '#0A0A0A',
         display: 'standalone',

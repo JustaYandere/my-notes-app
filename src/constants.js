@@ -34,7 +34,9 @@ export const SORT_OPTIONS = [
 export const SIZE_STEPS = ['compact', 'comfortable', 'large', 'xl'];
 export const SCALE_MAP = { compact: 0.85, comfortable: 1, large: 1.2, xl: 1.4 };
 
-export const NOTES_KEY = 'colornote_clone_notes_v7';
-export const SETTINGS_KEY = 'colornote_clone_settings_v7';
+export const NOTES_KEY = 'makinote_notes_v1';
+export const SETTINGS_KEY = 'makinote_settings_v1';
+export const LEGACY_NOTES_KEY = 'colornote_clone_notes_v7';
+export const LEGACY_SETTINGS_KEY = 'colornote_clone_settings_v7';
 export const MAX_HISTORY = 50;
 export const MAX_CUSTOM = 10;

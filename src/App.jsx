@@ -14,7 +14,7 @@ import {
 } from './utils/noteHelpers';
 import {
   FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
-  NOTES_KEY, SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
+  NOTES_KEY, SETTINGS_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
 } from './constants';
 import ColorWheel from './components/ColorWheel';
 import LightnessSlider from './components/LightnessSlider';
@@ -142,7 +142,11 @@ export default function NotesApp() {
   function colorHexOf(colorId) { return customColors.find((c) => c.id === colorId)?.hex || customColors[0]?.hex || '#5B9BB8'; }
 
   useEffect(() => {
-    const savedNotes = loadLocal(NOTES_KEY);
+    let savedNotes = loadLocal(NOTES_KEY);
+    if (!savedNotes) {
+      const legacyNotes = loadLocal(LEGACY_NOTES_KEY);
+      if (legacyNotes) { savedNotes = legacyNotes; saveLocal(NOTES_KEY, legacyNotes); }
+    }
     if (Array.isArray(savedNotes) && savedNotes.length) {
       let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], ...n }));
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
@@ -166,7 +170,11 @@ export default function NotesApp() {
       });
       if (hadDuplicates) setNotes(initialNotes);
     }
-    const savedSettings = loadLocal(SETTINGS_KEY);
+    let savedSettings = loadLocal(SETTINGS_KEY);
+    if (!savedSettings) {
+      const legacySettings = loadLocal(LEGACY_SETTINGS_KEY);
+      if (legacySettings) { savedSettings = legacySettings; saveLocal(SETTINGS_KEY, legacySettings); }
+    }
     if (savedSettings) {
       if (Array.isArray(savedSettings.customColors) && savedSettings.customColors.length) { setCustomColors(savedSettings.customColors); nextColorId.current = savedSettings.customColors.length + 1; }
       if (Array.isArray(savedSettings.separatorColors) && savedSettings.separatorColors.length) { setSeparatorColors(savedSettings.separatorColors); nextSepColorId.current = savedSettings.separatorColors.length + 1; }
@@ -1015,7 +1023,7 @@ export default function NotesApp() {
 
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Notes</h1>
+          <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 200, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
               <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
