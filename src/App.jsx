@@ -124,6 +124,9 @@ export default function NotesApp() {
   const titleRefs = useRef({});
   const addItemRefs = useRef({});
   const tagInputRefs = useRef({});
+  const noteHistoryPushed = useRef(false);
+  const settingsHistoryPushed = useRef(false);
+  const suppressBackNav = useRef(false);
   const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus });
   useSettingsSync({
     values: { customColors, customThemes, activeThemeId, modalTint, separatorColorId, mainBgEffect, mainBgImage, fontChoice },
@@ -245,6 +248,35 @@ export default function NotesApp() {
     return () => window.removeEventListener('keydown', onKeyDown);
   });
 
+  useEffect(() => {
+    function onPopState() {
+      suppressBackNav.current = true;
+      if (settingsOpen) closeSettings();
+      else if (editingId) finalizeClose(false);
+      requestAnimationFrame(() => { suppressBackNav.current = false; });
+    }
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  });
+
+  useEffect(() => {
+    if (editingId && !noteHistoryPushed.current) {
+      window.history.pushState({ layer: 'note' }, '');
+      noteHistoryPushed.current = true;
+    } else if (!editingId) {
+      noteHistoryPushed.current = false;
+    }
+  }, [editingId]);
+
+  useEffect(() => {
+    if (settingsOpen && !settingsHistoryPushed.current) {
+      window.history.pushState({ layer: 'settings' }, '');
+      settingsHistoryPushed.current = true;
+    } else if (!settingsOpen) {
+      settingsHistoryPushed.current = false;
+    }
+  }, [settingsOpen]);
+
   const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden), [notes]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
   const trashedNotes = useMemo(() => notes.filter((n) => n.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt), [notes]);
@@ -357,8 +389,11 @@ export default function NotesApp() {
     pushHistory();
     const id = nextId.current++;
     const now = Date.now();
-    setNotes((prev) => [{ id, title: '', body: '', mode: mode || 'note', checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], color: color || customColors[0]?.id, createdAt: now, updatedAt: now }, ...prev]);
+    const resolvedColor = color || customColors[0]?.id;
+    const resolvedMode = mode || 'note';
+    setNotes((prev) => [{ id, title: '', body: '', mode: resolvedMode, checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], color: resolvedColor, createdAt: now, updatedAt: now }, ...prev]);
     setEditingId(id);
+    setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode });
     setNewNoteSetupOpen(false);
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
   }
@@ -415,6 +450,18 @@ export default function NotesApp() {
     setNoteMenuOpen(false);
     setPendingClose(false);
     setPreEditSnapshot(null);
+    if (noteHistoryPushed.current) {
+      noteHistoryPushed.current = false;
+      if (!suppressBackNav.current) window.history.back();
+    }
+  }
+  function closeSettings() {
+    setSettingsOpen(false);
+    setSettingsSection(null);
+    if (settingsHistoryPushed.current) {
+      settingsHistoryPushed.current = false;
+      if (!suppressBackNav.current) window.history.back();
+    }
   }
   function openHiddenNotes() {
     if (pinEnabled) { setHiddenPinCheck(true); setHiddenPinEntry(''); setHiddenPinError(''); }
@@ -1257,7 +1304,7 @@ export default function NotesApp() {
       {NoteEditorModal()}
 
       {settingsOpen && (
-        <div onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 70 }}>
+        <div onClick={closeSettings} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 70 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 440, maxHeight: '88vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1270,7 +1317,7 @@ export default function NotesApp() {
                   {settingsSection === 'colors' ? 'Colors' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
                 </h2>
               </div>
-              <button onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={closeSettings} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
 
             {!settingsSection && (
@@ -1470,7 +1517,7 @@ export default function NotesApp() {
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
                   <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />
-                  <button onClick={() => { setSettingsOpen(false); setSettingsSection(null); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
+                  <button onClick={() => { closeSettings(); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
                     <GitCompare size={15} /> Find similar notes{similarPairs.length > 0 ? ` (${similarPairs.length})` : ''}
                   </button>
                 </div>
