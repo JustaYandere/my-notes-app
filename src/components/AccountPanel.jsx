@@ -132,7 +132,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   if (mode === 'forgotChoice') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button type="button" onClick={backToLogin} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
+        <button type="button" onClick={backToLogin} style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
           <ArrowLeft size={13} /> Back to log in
         </button>
         <p style={{ fontSize: 13, color: text, margin: '0 0 4px' }}>What did you forget?</p>
@@ -149,7 +149,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   if (mode === 'forgotEmail') {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button type="button" onClick={() => setMode('forgotChoice')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
+        <button type="button" onClick={() => setMode('forgotChoice')} style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
           <ArrowLeft size={13} /> Back
         </button>
         <p style={{ fontSize: 13, color: text, margin: 0 }}>
@@ -165,7 +165,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   if (mode === 'forgotPassword') {
     return (
       <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button type="button" onClick={() => setMode('forgotChoice')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
+        <button type="button" onClick={() => setMode('forgotChoice')} style={{ display: 'flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start', background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
           <ArrowLeft size={13} /> Back
         </button>
         <input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }} />

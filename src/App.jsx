@@ -106,6 +106,7 @@ export default function NotesApp() {
   const [past, setPast] = useState([]);
   const [future, setFuture] = useState([]);
   const [justSaved, setJustSaved] = useState(false);
+  const [backSaveToast, setBackSaveToast] = useState(false);
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
@@ -266,7 +267,14 @@ export default function NotesApp() {
     function onPopState() {
       suppressBackNav.current = true;
       if (settingsOpen) closeSettings();
-      else if (editingId) finalizeClose(false);
+      else if (editingId) {
+        const didChange = noteChangedSincePreEdit();
+        finalizeClose(false);
+        if (didChange) {
+          setBackSaveToast(true);
+          setTimeout(() => setBackSaveToast(false), 1500);
+        }
+      }
       requestAnimationFrame(() => { suppressBackNav.current = false; });
     }
     window.addEventListener('popstate', onPopState);
@@ -1272,6 +1280,12 @@ export default function NotesApp() {
       <button onClick={openNewNoteSetup} aria-label="Add note" style={{ position: 'fixed', bottom: allTags.length > 0 ? 92 : 28, right: 28, width: 56, height: 56, borderRadius: '50%', background: '#E8735F', color: '#fff', border: 'none', boxShadow: '0 4px 14px rgba(232,115,95,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
         <Plus size={24} />
       </button>
+
+      {backSaveToast && (
+        <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#2f2f2f', color: '#fff', padding: '8px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, zIndex: 200, boxShadow: '0 4px 14px rgba(0,0,0,0.35)', pointerEvents: 'none' }}>
+          Saved
+        </div>
+      )}
 
       {allTags.length > 0 && (
         <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 64, background: elevated, borderTop: borderStyle, display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', overflowX: 'auto', zIndex: 9 }}>
