@@ -28,6 +28,7 @@ import ConnectedNotesModal from './components/ConnectedNotesModal';
 import AmbientAudio from './components/AmbientAudio';
 import { useNotesSync } from './hooks/useNotesSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
+import { supabase, supabaseEnabled } from './lib/supabaseClient';
 
 export default function NotesApp() {
   const [hydrated, setHydrated] = useState(false);
@@ -73,6 +74,7 @@ export default function NotesApp() {
   const [similarThreshold, setSimilarThreshold] = useState(0.2);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState(null);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [similarOpen, setSimilarOpen] = useState(false);
@@ -249,6 +251,18 @@ export default function NotesApp() {
   });
 
   useEffect(() => {
+    if (!supabaseEnabled) return;
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecovery(true);
+        setSettingsSection('account');
+        setSettingsOpen(true);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     function onPopState() {
       suppressBackNav.current = true;
       if (settingsOpen) closeSettings();
@@ -379,11 +393,8 @@ export default function NotesApp() {
   function openNoteColorCreator() {
     setColorPickerOpen(false);
     setNewNoteSetupOpen(false);
-    setSettingsSection('colors');
+    setSettingsSection('quickNoteColor');
     setSettingsOpen(true);
-    setTimeout(() => {
-      document.getElementById('note-colors-section')?.scrollIntoView({ block: 'start' });
-    }, 50);
   }
   function addNote(color, mode) {
     pushHistory();
@@ -1314,7 +1325,7 @@ export default function NotesApp() {
                   </button>
                 )}
                 <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>
-                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
+                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'quickNoteColor' ? 'New color' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
                 </h2>
               </div>
               <button onClick={closeSettings} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -1337,6 +1348,34 @@ export default function NotesApp() {
                 <button onClick={() => setSettingsSection('account')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <User size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Account</span> <ChevronRight size={16} style={{ color: muted }} />
                 </button>
+              </div>
+            )}
+
+            {settingsSection === 'quickNoteColor' && (
+              <div>
+                <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Note colors (up to {MAX_CUSTOM})</label>
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                  <ColorWheel size={130} hue={wheelHue} sat={wheelSat} onChange={(h, sat) => { setWheelHue(h); setWheelSat(sat); }} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 120 }}>
+                    <label style={{ fontSize: 11, color: muted }}>Lightness</label>
+                    <LightnessSlider hue={wheelHue} sat={wheelSat} value={wheelLight} onChange={setWheelLight} />
+                    <div style={{ width: '100%', height: 28, borderRadius: 8, background: rgbToHex(...hslToRgb(wheelHue, wheelSat, wheelLight)) }} />
+                    <button onClick={saveCustomColor} disabled={customColors.length >= MAX_CUSTOM} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: '#E8735F', color: '#fff', fontSize: 12, cursor: customColors.length >= MAX_CUSTOM ? 'default' : 'pointer', opacity: customColors.length >= MAX_CUSTOM ? 0.5 : 1 }}>
+                      Save color {customColors.length + 1}
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+                  {customColors.map((c) => (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 20, height: 20, borderRadius: 6, background: c.hex, flexShrink: 0 }} />
+                      <input value={c.label} onChange={(e) => renameCustomColor(c.id, e.target.value)} style={{ flex: 1, background: bg, border: borderStyle, borderRadius: 8, padding: '5px 8px', fontSize: 12, color: text, outline: 'none' }} />
+                      {customColors.length > 1 && (
+                        <button onClick={() => deleteCustomColor(c.id)} aria-label="Delete color" title="Delete color" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 2 }}><X size={13} /></button>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -1624,7 +1663,7 @@ export default function NotesApp() {
             {settingsSection === 'account' && (
               <>
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} />
+                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} />
                 </div>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, cursor: 'pointer', paddingBottom: 18, borderBottom: borderStyle }}>

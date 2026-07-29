@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { LogOut } from 'lucide-react';
+import { LogOut, ArrowLeft } from 'lucide-react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 
-export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle }) {
+export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled }) {
   const [user, setUser] = useState(null);
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -10,7 +10,6 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const [recoveryMode, setRecoveryMode] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
 
@@ -20,17 +19,16 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
       setUser(data.session?.user || null);
       onUserChange?.(data.session?.user || null);
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
       onUserChange?.(session?.user || null);
-      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
     });
     return () => sub.subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleForgotPassword() {
-    if (!email) { setError('Enter your email above first, then tap "Forgot password".'); return; }
+  async function handleForgotPassword(e) {
+    e.preventDefault();
     setError('');
     setInfo('');
     setLoading(true);
@@ -54,10 +52,10 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     try {
       const { error: err } = await supabase.auth.updateUser({ password: newPassword });
       if (err) throw err;
-      setRecoveryMode(false);
       setNewPassword('');
       setNewPasswordConfirm('');
       setInfo('Password updated.');
+      onRecoveryHandled?.();
     } catch (err) {
       setError(err.message || 'Something went wrong.');
     } finally {
@@ -92,11 +90,17 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     setLoading(false);
   }
 
+  function backToLogin() {
+    setError('');
+    setInfo('');
+    setMode('login');
+  }
+
   if (!supabaseEnabled) {
     return <p style={{ fontSize: 12, color: muted, margin: 0 }}>Cloud sync isn't configured yet.</p>;
   }
 
-  if (recoveryMode) {
+  if (passwordRecovery) {
     return (
       <form onSubmit={handleSetNewPassword} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <p style={{ fontSize: 13, color: text, margin: '0 0 4px' }}>Choose a new password</p>
@@ -125,6 +129,55 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     );
   }
 
+  if (mode === 'forgotChoice') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button type="button" onClick={backToLogin} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
+          <ArrowLeft size={13} /> Back to log in
+        </button>
+        <p style={{ fontSize: 13, color: text, margin: '0 0 4px' }}>What did you forget?</p>
+        <button type="button" onClick={() => { setMode('forgotPassword'); setError(''); setInfo(''); }} style={{ padding: '9px 12px', borderRadius: 8, border: borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer', textAlign: 'left' }}>
+          My password
+        </button>
+        <button type="button" onClick={() => { setMode('forgotEmail'); setError(''); setInfo(''); }} style={{ padding: '9px 12px', borderRadius: 8, border: borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer', textAlign: 'left' }}>
+          The email I signed up with
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === 'forgotEmail') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button type="button" onClick={() => setMode('forgotChoice')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
+          <ArrowLeft size={13} /> Back
+        </button>
+        <p style={{ fontSize: 13, color: text, margin: 0 }}>
+          If you're still signed in on another device or browser, open <strong>Settings → Account</strong> there — it shows the email you're signed in with at the top.
+        </p>
+        <p style={{ fontSize: 12, color: muted, margin: 0 }}>
+          If you're not signed in anywhere else, there isn't a way to look up the email from inside the app — contact support at the email listed in the app's privacy policy for help.
+        </p>
+      </div>
+    );
+  }
+
+  if (mode === 'forgotPassword') {
+    return (
+      <form onSubmit={handleForgotPassword} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <button type="button" onClick={() => setMode('forgotChoice')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>
+          <ArrowLeft size={13} /> Back
+        </button>
+        <input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }} />
+        {error && <p style={{ fontSize: 11, color: '#E8735F', margin: 0 }}>{error}</p>}
+        {info && <p style={{ fontSize: 11, color: '#7FA671', margin: 0 }}>{info}</p>}
+        <button type="submit" disabled={loading} style={{ background: '#E8735F', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, cursor: 'pointer' }}>
+          {loading ? 'Please wait…' : 'Send reset link'}
+        </button>
+      </form>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
@@ -134,8 +187,8 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
       <input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }} />
       <input type="password" required placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }} />
       {mode === 'login' && (
-        <button type="button" onClick={handleForgotPassword} disabled={loading} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
-          Forgot password?
+        <button type="button" onClick={() => { setMode('forgotChoice'); setError(''); setInfo(''); }} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+          Forgot password or email?
         </button>
       )}
       {error && <p style={{ fontSize: 11, color: '#E8735F', margin: 0 }}>{error}</p>}
