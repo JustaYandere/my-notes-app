@@ -3,7 +3,7 @@ import { hslToRgb, rgbToHex } from '../utils/colorMath';
 
 export default function LightnessSlider({ hue, sat, value, onChange, height = 26 }) {
   const trackRef = useRef(null);
-  const fullColor = rgbToHex(...hslToRgb(hue, sat, 0.5));
+  const stops = [0, 0.25, 0.5, 0.75, 1].map((l) => rgbToHex(...hslToRgb(hue, sat, l)));
   const thumbColor = rgbToHex(...hslToRgb(hue, sat, value));
   function pick(e) {
     const track = trackRef.current;
@@ -16,7 +16,7 @@ export default function LightnessSlider({ hue, sat, value, onChange, height = 26
   return (
     <div
       ref={trackRef}
-      style={{ position: 'relative', width: '100%', height, borderRadius: height / 2, background: `linear-gradient(to right, #000, ${fullColor}, #fff)`, cursor: 'pointer', touchAction: 'none' }}
+      style={{ position: 'relative', width: '100%', height, borderRadius: height / 2, background: `linear-gradient(to right, ${stops.join(', ')})`, cursor: 'pointer', touchAction: 'none' }}
       onMouseDown={(e) => {
         pick(e);
         const move = (ev) => pick(ev);

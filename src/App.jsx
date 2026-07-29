@@ -738,6 +738,9 @@ export default function NotesApp() {
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setNoteColor(note, c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: 7, background: c.hex, border: c.id === note.color ? `2px solid ${text}` : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
               ))}
+              <button onClick={() => { setColorPickerOpen(false); setSettingsSection('colors'); setSettingsOpen(true); }} title="Create new color" aria-label="Create new color" style={{ width: 22, height: 22, borderRadius: 7, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Plus size={13} />
+              </button>
             </div>
           </>
         )}
@@ -1019,10 +1022,15 @@ export default function NotesApp() {
         input[type=checkbox] { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; flex-shrink: 0; border-radius: 5px; border: 1.5px solid ${muted}; background: transparent; cursor: pointer; position: relative; transition: background 0.15s ease, border-color 0.15s ease; }
         input[type=checkbox]:checked { background: #E8735F; border-color: #E8735F; }
         input[type=checkbox]:checked::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+        @media (max-width: 640px) {
+          .app-shell { padding-left: 0 !important; padding-right: 0 !important; }
+          .app-header { padding-left: 16px; padding-right: 16px; }
+        }
       `}</style>
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
+      <div className="app-shell" style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
+        <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 200, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
@@ -1040,24 +1048,6 @@ export default function NotesApp() {
             ) : (
               <button onClick={() => setSearchOpen(true)} aria-label="Search notes" title="Search notes" style={toolbarBtnStyle(false)}><Search size={16} /></button>
             )}
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ background: elevated, color: text, border: borderStyle, borderRadius: 10, padding: '9px 10px', fontSize: 13, outline: 'none', cursor: 'pointer' }}>
-              {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-            </select>
-
-            <div style={{ display: 'flex', border: borderStyle, borderRadius: 10, overflow: 'hidden' }}>
-              <button onClick={() => setView('grid')} aria-label="Grid view" title="Grid view" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: view === 'grid' ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LayoutGrid size={16} /></button>
-              <button onClick={() => setView('list')} aria-label="List view" title="List view" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: view === 'list' ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Rows3 size={16} /></button>
-            </div>
-
-            <div style={{ display: 'flex', border: borderStyle, borderRadius: 10, overflow: 'hidden' }}>
-              <button onClick={() => setFullScreenEditor(false)} aria-label="Popup note editor" title="Popup note editor" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: !fullScreenEditor ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Square size={16} /></button>
-              <button onClick={() => setFullScreenEditor(true)} aria-label="Fullscreen note editor" title="Fullscreen note editor" style={{ width: 36, height: 36, border: 'none', cursor: 'pointer', background: fullScreenEditor ? borderColor : elevated, color: text, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Maximize2 size={16} /></button>
-            </div>
-
-            <button onClick={() => setSimilarOpen(true)} aria-label="Find similar notes" title="Find similar notes" style={toolbarBtnStyle(false)}>
-              <GitCompare size={16} />
-              {similarPairs.length > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: '#E8735F', color: '#fff', borderRadius: 999, fontSize: 9, minWidth: 15, height: 15, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{similarPairs.length}</span>}
-            </button>
             {syncUser && (
               <button onClick={() => setConnectedNotesOpen(true)} aria-label="Connected notes" title="Connected notes" style={toolbarBtnStyle(false)}>
                 <Users size={16} />
@@ -1069,6 +1059,12 @@ export default function NotesApp() {
               {syncUser && <span style={{ position: 'absolute', bottom: -2, right: -2, width: 8, height: 8, borderRadius: '50%', background: '#7FA671', border: `1.5px solid ${elevated}` }} />}
             </button>
           </div>
+        </div>
+
+        <div style={{ borderTop: borderStyle, borderBottom: borderStyle, marginBottom: 24 }}>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ width: '100%', background: 'transparent', color: muted, border: 'none', outline: 'none', padding: '10px 16px', fontSize: 13, cursor: 'pointer' }}>
+            {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>Sort by: {opt.label}</option>)}
+          </select>
         </div>
 
         {filtered.length === 0 && (
@@ -1251,7 +1247,7 @@ export default function NotesApp() {
       {NoteEditorModal()}
 
       {settingsOpen && (
-        <div onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
+        <div onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 70 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 440, maxHeight: '88vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1261,7 +1257,7 @@ export default function NotesApp() {
                   </button>
                 )}
                 <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>
-                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'text' ? 'Text' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
+                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
                 </h2>
               </div>
               <button onClick={() => { setSettingsOpen(false); setSettingsSection(null); }} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -1274,6 +1270,9 @@ export default function NotesApp() {
                 </button>
                 <button onClick={() => setSettingsSection('text')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <Type size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Text</span> <ChevronRight size={16} style={{ color: muted }} />
+                </button>
+                <button onClick={() => setSettingsSection('view')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
+                  <LayoutGrid size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>View</span> <ChevronRight size={16} style={{ color: muted }} />
                 </button>
                 <button onClick={() => setSettingsSection('other')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <SlidersHorizontal size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Other</span> <ChevronRight size={16} style={{ color: muted }} />
@@ -1432,16 +1431,68 @@ export default function NotesApp() {
               </>
             )}
 
+            {settingsSection === 'view' && (
+              <>
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Note list layout</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setView('grid')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: view === 'grid' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <LayoutGrid size={14} /> Grid
+                    </button>
+                    <button onClick={() => setView('list')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: view === 'list' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Rows3 size={14} /> List
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Note editor style</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setFullScreenEditor(false)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: !fullScreenEditor ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Square size={14} /> Popup
+                    </button>
+                    <button onClick={() => setFullScreenEditor(true)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: fullScreenEditor ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Maximize2 size={14} /> Fullscreen
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
+                  <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />
+                  <button onClick={() => { setSettingsOpen(false); setSettingsSection(null); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
+                    <GitCompare size={15} /> Find similar notes{similarPairs.length > 0 ? ` (${similarPairs.length})` : ''}
+                  </button>
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={autoMoveCompleted} onChange={(e) => setAutoMoveCompleted(e.target.checked)} />
+                  Auto-move crossed-out text to the bottom (checklist items always do this)
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={confirmOnClose} onChange={(e) => setConfirmOnClose(e.target.checked)} />
+                  Ask to save before closing an edited note
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={confirmDelete} onChange={(e) => setConfirmDelete(e.target.checked)} />
+                  Ask for confirmation before moving a note to Trash
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
+                  Auto-save notes as I type
+                </label>
+                {!autoSave && <p style={{ fontSize: 12, color: muted, margin: '0' }}>Auto-save is off — changes are kept in the app but won't survive a refresh until you save from within a note.</p>}
+              </>
+            )}
+
             {settingsSection === 'other' && (
               <>
                 <div style={{ marginBottom: 16 }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Enlarged note transparency: {modalTint}%</label>
                   <input type="range" min={5} max={100} value={modalTint} onChange={(e) => setModalTint(Number(e.target.value))} style={{ width: '100%', ...rangeAccentStyle }} />
-                </div>
-
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
-                  <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', ...rangeAccentStyle }} />
                 </div>
 
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
@@ -1493,27 +1544,6 @@ export default function NotesApp() {
                     </>
                   )}
                 </div>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={autoMoveCompleted} onChange={(e) => setAutoMoveCompleted(e.target.checked)} />
-                  Auto-move crossed-out text to the bottom (checklist items always do this)
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={confirmOnClose} onChange={(e) => setConfirmOnClose(e.target.checked)} />
-                  Ask to save before closing an edited note
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={confirmDelete} onChange={(e) => setConfirmDelete(e.target.checked)} />
-                  Ask for confirmation before moving a note to Trash
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
-                  Auto-save notes as I type
-                </label>
-                {!autoSave && <p style={{ fontSize: 12, color: muted, margin: '-14px 0 20px' }}>Auto-save is off — changes are kept in the app but won't survive a refresh until you save from within a note.</p>}
 
                 <div style={{ borderTop: borderStyle, paddingTop: 16, marginBottom: 16 }}>
                   <button onClick={openHiddenNotes} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
