@@ -32,7 +32,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     setLoading(true);
     try {
       if (mode === 'signup') {
-        const { error: err } = await supabase.auth.signUp({ email, password });
+        const { error: err } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
         if (err) throw err;
         setInfo('Check your email to confirm your account, then log in.');
       } else {

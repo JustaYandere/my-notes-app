@@ -344,6 +344,15 @@ export default function NotesApp() {
     setPendingNoteMode('note');
     setNewNoteSetupOpen(true);
   }
+  function openNoteColorCreator() {
+    setColorPickerOpen(false);
+    setNewNoteSetupOpen(false);
+    setSettingsSection('colors');
+    setSettingsOpen(true);
+    setTimeout(() => {
+      document.getElementById('note-colors-section')?.scrollIntoView({ block: 'start' });
+    }, 50);
+  }
   function addNote(color, mode) {
     pushHistory();
     const id = nextId.current++;
@@ -738,7 +747,7 @@ export default function NotesApp() {
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setNoteColor(note, c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: 7, background: c.hex, border: c.id === note.color ? `2px solid ${text}` : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
               ))}
-              <button onClick={() => { setColorPickerOpen(false); setSettingsSection('colors'); setSettingsOpen(true); }} title="Create new color" aria-label="Create new color" style={{ width: 22, height: 22, borderRadius: 7, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button onClick={openNoteColorCreator} title="Create new color" aria-label="Create new color" style={{ width: 22, height: 22, borderRadius: 7, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Plus size={13} />
               </button>
             </div>
@@ -1319,7 +1328,7 @@ export default function NotesApp() {
                   <div style={{ fontSize: 12, color: muted, marginTop: 6 }}>{activePreset.label}</div>
                 </div>
 
-                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                <div id="note-colors-section" style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Note colors (up to {MAX_CUSTOM})</label>
                   <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                     <ColorWheel size={130} hue={wheelHue} sat={wheelSat} onChange={(h, sat) => { setWheelHue(h); setWheelSat(sat); }} />
@@ -1732,7 +1741,7 @@ export default function NotesApp() {
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setPendingNoteColor(c.id)} title={c.label} style={{ width: 30, height: 30, borderRadius: 9, background: c.hex, cursor: 'pointer', border: pendingNoteColor === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
               ))}
-              <button onClick={() => { setNewNoteSetupOpen(false); setSettingsSection('colors'); setSettingsOpen(true); }} title="Create new color" aria-label="Create new color" style={{ width: 30, height: 30, borderRadius: 9, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+              <button onClick={openNoteColorCreator} title="Create new color" aria-label="Create new color" style={{ width: 30, height: 30, borderRadius: 9, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                 <Plus size={15} />
               </button>
             </div>
