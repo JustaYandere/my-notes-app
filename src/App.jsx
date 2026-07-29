@@ -1025,14 +1025,15 @@ export default function NotesApp() {
 
         @media (max-width: 640px) {
           .app-shell { padding-left: 0 !important; padding-right: 0 !important; }
-          .app-header { padding-left: 16px; padding-right: 16px; }
+          .app-header { padding-left: 16px; padding-right: 16px; flex-wrap: nowrap !important; }
+          .app-header h1 { font-size: 24px !important; }
         }
       `}</style>
 
       <div className="app-shell" style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 200, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
               <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
                 <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: muted }} />
@@ -1061,8 +1062,8 @@ export default function NotesApp() {
           </div>
         </div>
 
-        <div style={{ borderTop: borderStyle, borderBottom: borderStyle, marginBottom: 24 }}>
-          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ width: '100%', background: 'transparent', color: muted, border: 'none', outline: 'none', padding: '10px 16px', fontSize: 13, cursor: 'pointer' }}>
+        <div style={{ background: elevated, border: borderStyle, borderRadius: 14, marginBottom: 24, boxSizing: 'border-box', overflow: 'hidden' }}>
+          <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ width: '100%', boxSizing: 'border-box', background: 'transparent', color: text, fontWeight: 600, border: 'none', outline: 'none', padding: '12px 16px', fontSize: 14, cursor: 'pointer' }}>
             {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>Sort by: {opt.label}</option>)}
           </select>
         </div>
@@ -1731,6 +1732,9 @@ export default function NotesApp() {
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setPendingNoteColor(c.id)} title={c.label} style={{ width: 30, height: 30, borderRadius: 9, background: c.hex, cursor: 'pointer', border: pendingNoteColor === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
               ))}
+              <button onClick={() => { setNewNoteSetupOpen(false); setSettingsSection('colors'); setSettingsOpen(true); }} title="Create new color" aria-label="Create new color" style={{ width: 30, height: 30, borderRadius: 9, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                <Plus size={15} />
+              </button>
             </div>
             <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Type</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
