@@ -75,6 +75,7 @@ export default function NotesApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [accountRecoveryFocus, setAccountRecoveryFocus] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [similarOpen, setSimilarOpen] = useState(false);
@@ -1677,30 +1678,34 @@ export default function NotesApp() {
             {settingsSection === 'account' && (
               <>
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} />
+                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} />
                 </div>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, cursor: 'pointer', paddingBottom: 18, borderBottom: borderStyle }}>
-                  <input type="checkbox" checked={shareColors} onChange={(e) => setShareColors(e.target.checked)} />
-                  Shared colors — sync my colors &amp; themes across my signed-in devices
-                </label>
+                {!accountRecoveryFocus && (
+                  <>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, cursor: 'pointer', paddingBottom: 18, borderBottom: borderStyle }}>
+                      <input type="checkbox" checked={shareColors} onChange={(e) => setShareColors(e.target.checked)} />
+                      Shared colors — sync my colors &amp; themes across my signed-in devices
+                    </label>
 
-                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={pinEnabled} onChange={(e) => { if (e.target.checked) setShowPinSetup(true); else removePin(); }} />
-                    Lock the app with a PIN
-                  </label>
-                  {showPinSetup && (
-                    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <input type="password" inputMode="numeric" placeholder="New PIN (4+ digits)" value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))} style={{ background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 10px', fontSize: 14, outline: 'none' }} />
-                      <input type="password" inputMode="numeric" placeholder="Confirm PIN" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))} style={{ background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 10px', fontSize: 14, outline: 'none' }} />
-                      {pinSetupError && <div style={{ color: '#E8735F', fontSize: 12 }}>{pinSetupError}</div>}
-                      <button onClick={savePin} style={{ background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Save PIN</button>
+                    <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={pinEnabled} onChange={(e) => { if (e.target.checked) setShowPinSetup(true); else removePin(); }} />
+                        Lock the app with a PIN
+                      </label>
+                      {showPinSetup && (
+                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <input type="password" inputMode="numeric" placeholder="New PIN (4+ digits)" value={newPin} onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))} style={{ background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 10px', fontSize: 14, outline: 'none' }} />
+                          <input type="password" inputMode="numeric" placeholder="Confirm PIN" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))} style={{ background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 10px', fontSize: 14, outline: 'none' }} />
+                          {pinSetupError && <div style={{ color: '#E8735F', fontSize: 12 }}>{pinSetupError}</div>}
+                          <button onClick={savePin} style={{ background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Save PIN</button>
+                        </div>
+                      )}
+                      {pinEnabled && !showPinSetup && <button onClick={removePin} style={{ marginTop: 8, background: 'none', border: 'none', color: muted, fontSize: 13, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Remove PIN</button>}
+                      <p style={{ fontSize: 11, color: muted, margin: '8px 0 0' }}>This locks the app screen only — it's a basic deterrent, not real encryption. It's device-specific and won't sync to your other devices.</p>
                     </div>
-                  )}
-                  {pinEnabled && !showPinSetup && <button onClick={removePin} style={{ marginTop: 8, background: 'none', border: 'none', color: muted, fontSize: 13, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Remove PIN</button>}
-                  <p style={{ fontSize: 11, color: muted, margin: '8px 0 0' }}>This locks the app screen only — it's a basic deterrent, not real encryption. It's device-specific and won't sync to your other devices.</p>
-                </div>
+                  </>
+                )}
 
                 <div>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Connected accounts</label>

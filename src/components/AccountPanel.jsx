@@ -2,7 +2,15 @@ import { useState, useEffect } from 'react';
 import { LogOut, ArrowLeft } from 'lucide-react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 
-export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled }) {
+const RECOVERY_MODES = ['forgotChoice', 'forgotEmail', 'forgotPassword'];
+
+function errMsg(err) {
+  if (!err) return 'Something went wrong.';
+  if (typeof err === 'string') return err;
+  return err.message || err.error_description || err.msg || 'Something went wrong.';
+}
+
+export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled, onFocusModeChange }) {
   const [user, setUser] = useState(null);
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -12,6 +20,11 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   const [info, setInfo] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+
+  useEffect(() => {
+    onFocusModeChange?.(passwordRecovery || RECOVERY_MODES.includes(mode));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passwordRecovery, mode]);
 
   useEffect(() => {
     if (!supabaseEnabled) return;
@@ -37,7 +50,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
       if (err) throw err;
       setInfo('Check your email for a link to reset your password.');
     } catch (err) {
-      setError(err.message || 'Something went wrong.');
+      setError(errMsg(err));
     } finally {
       setLoading(false);
     }
@@ -57,7 +70,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
       setInfo('Password updated.');
       onRecoveryHandled?.();
     } catch (err) {
-      setError(err.message || 'Something went wrong.');
+      setError(errMsg(err));
     } finally {
       setLoading(false);
     }
@@ -78,7 +91,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
         if (err) throw err;
       }
     } catch (err) {
-      setError(err.message || 'Something went wrong.');
+      setError(errMsg(err));
     } finally {
       setLoading(false);
     }
