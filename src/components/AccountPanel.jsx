@@ -65,9 +65,11 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     try {
       const { error: err } = await supabase.auth.updateUser({ password: newPassword });
       if (err) throw err;
+      await supabase.auth.signOut();
       setNewPassword('');
       setNewPasswordConfirm('');
-      setInfo('Password updated.');
+      setMode('login');
+      setInfo('Password updated — log in with your new password.');
       onRecoveryHandled?.();
     } catch (err) {
       setError(errMsg(err));
