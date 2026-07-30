@@ -532,6 +532,7 @@ export default function NotesApp() {
       && (!editingNote?.voiceNotes || editingNote.voiceNotes.length === 0)
       && (!editingNote?.tags || editingNote.tags.length === 0);
     if (isEmpty) {
+      if (editingNote?.cloudId) deleteCloudNote(editingNote.cloudId);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
     }
     setEditingId(null);
@@ -686,6 +687,12 @@ export default function NotesApp() {
   function bulkSetColor(colorId) {
     pushHistory();
     setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, color: colorId } : n)));
+    clearSelection();
+  }
+  function bulkExport() {
+    const selected = notes.filter((n) => selectedNoteIds.includes(n.id));
+    const content = selected.map(noteToMarkdown).join('\n---\n\n');
+    downloadBlob(content, `notes-export-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
     clearSelection();
   }
   function moveToTrash(id) {
@@ -1215,11 +1222,6 @@ export default function NotesApp() {
       <div className="app-shell" style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
-          {syncUser && (
-            <span style={{ fontSize: 12, color: syncStatus === 'syncing' ? muted : syncStatus === 'error' ? '#E8735F' : '#7FA671' }}>
-              {syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error' : 'Synced'}
-            </span>
-          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
               <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
@@ -1254,7 +1256,14 @@ export default function NotesApp() {
           </select>
         </div>
 
-        <div style={{ fontSize: 12, color: muted, marginBottom: 20, paddingLeft: 4 }}>{liveNotes.length} {liveNotes.length === 1 ? 'note' : 'notes'}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: muted, marginBottom: 10, padding: '0 4px' }}>
+          <span>{liveNotes.length} {liveNotes.length === 1 ? 'note' : 'notes'}</span>
+          {syncUser && (
+            <span style={{ color: syncStatus === 'syncing' ? muted : syncStatus === 'error' ? '#E8735F' : '#7FA671' }}>
+              {syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error' : 'Synced'}
+            </span>
+          )}
+        </div>
 
         {filtered.length === 0 && (
           <div style={{ color: muted, fontSize: 14, padding: '40px 0', textAlign: 'center' }}>{query ? `Nothing matches "${query}"` : 'No notes yet — tap + to start one'}</div>
@@ -1278,6 +1287,7 @@ export default function NotesApp() {
                   onPointerDown={() => handlePressStart(note)}
                   onPointerUp={handlePressEnd}
                   onPointerLeave={handlePressEnd}
+                  onContextMenu={(e) => { e.preventDefault(); toggleSelectNote(note.id); }}
                 >
                   <div style={{ width: 5, flexShrink: 0, background: colorHex }} />
                   {selectedNoteIds.length > 0 && (
@@ -1345,6 +1355,7 @@ export default function NotesApp() {
                   onPointerDown={() => handlePressStart(note)}
                   onPointerUp={handlePressEnd}
                   onPointerLeave={handlePressEnd}
+                  onContextMenu={(e) => { e.preventDefault(); toggleSelectNote(note.id); }}
                 >
                   <div style={{ width: 4, alignSelf: 'stretch', flexShrink: 0, background: colorHex }} />
                   {selectedNoteIds.length > 0 && (
@@ -1435,6 +1446,7 @@ export default function NotesApp() {
               </>
             )}
           </div>
+          <button onClick={bulkExport} aria-label="Export notes" title="Export notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Download size={20} /></button>
           <button onClick={bulkHide} aria-label="Hide notes" title="Hide notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><EyeOff size={20} /></button>
           <button onClick={bulkDelete} aria-label="Delete notes" title="Delete notes" style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={20} /></button>
         </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LogOut, ArrowLeft } from 'lucide-react';
-import { supabase, supabaseEnabled } from '../lib/supabaseClient';
+import { supabase, supabaseEnabled, setKeepSignedIn } from '../lib/supabaseClient';
 
 const RECOVERY_MODES = ['forgotChoice', 'forgotEmail', 'forgotPassword'];
 
@@ -20,6 +20,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   const [info, setInfo] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  const [keepSignedInChecked, setKeepSignedInChecked] = useState(true);
 
   useEffect(() => {
     onFocusModeChange?.(passwordRecovery || RECOVERY_MODES.includes(mode));
@@ -83,6 +84,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     setError('');
     setInfo('');
     setLoading(true);
+    setKeepSignedIn(keepSignedInChecked);
     try {
       if (mode === 'signup') {
         const { error: err } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
@@ -201,6 +203,10 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
       </div>
       <input type="email" required placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }} />
       <input type="password" required placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }} />
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: text, cursor: 'pointer' }}>
+        <input type="checkbox" checked={keepSignedInChecked} onChange={(e) => setKeepSignedInChecked(e.target.checked)} />
+        Keep me signed in
+      </label>
       {mode === 'login' && (
         <button type="button" onClick={() => { setMode('forgotChoice'); setError(''); setInfo(''); }} style={{ alignSelf: 'flex-start', background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
           Forgot password or email?
