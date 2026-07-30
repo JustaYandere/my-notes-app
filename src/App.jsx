@@ -115,6 +115,10 @@ export default function NotesApp() {
   const [sepWheelHue, setSepWheelHue] = useState(200);
   const [sepWheelSat, setSepWheelSat] = useState(0.6);
   const [sepWheelLight, setSepWheelLight] = useState(0.55);
+  const [colorCreatorContext, setColorCreatorContext] = useState(null);
+  const [colorToDelete, setColorToDelete] = useState(null);
+  const [colorMigration, setColorMigration] = useState(null);
+  const [migrationStep, setMigrationStep] = useState('ask');
 
   const nextId = useRef(4);
   const nextItemId = useRef(10);
@@ -399,11 +403,50 @@ export default function NotesApp() {
     setPendingNoteMode('note');
     setNewNoteSetupOpen(true);
   }
-  function openNoteColorCreator() {
+  function openNoteColorCreator(context) {
+    setColorCreatorContext(context || null);
     setColorPickerOpen(false);
     setNewNoteSetupOpen(false);
     setSettingsSection('quickNoteColor');
     setSettingsOpen(true);
+  }
+  function confirmNewNoteColor() {
+    if (customColors.length >= MAX_CUSTOM) return;
+    const [r, g, b] = hslToRgb(wheelHue, wheelSat, wheelLight);
+    const id = `c${nextColorId.current++}`;
+    setCustomColors((prev) => [...prev, { id, hex: rgbToHex(r, g, b), label: `Color ${prev.length + 1}` }]);
+    closeSettings();
+    if (colorCreatorContext?.type === 'note') {
+      setNoteColor(colorCreatorContext.note, id);
+    } else if (colorCreatorContext?.type === 'newNote') {
+      setPendingNoteColor(id);
+      setNewNoteSetupOpen(true);
+    }
+    setColorCreatorContext(null);
+  }
+  function requestDeleteColor(color) {
+    if (customColors.length <= 1) return;
+    setColorToDelete(color);
+  }
+  function confirmDeleteColor() {
+    if (!colorToDelete) return;
+    const deletedId = colorToDelete.id;
+    const deletedLabel = colorToDelete.label;
+    const affected = notes.filter((n) => n.color === deletedId && !n.deletedAt);
+    deleteCustomColor(deletedId);
+    setColorToDelete(null);
+    if (affected.length > 0) {
+      setMigrationStep('ask');
+      setColorMigration({ label: deletedLabel, noteIds: affected.map((n) => n.id), noteTitles: affected.map((n) => n.title || 'Untitled note') });
+    }
+  }
+  function confirmColorMigration() {
+    if (!colorMigration) return;
+    const [r, g, b] = hslToRgb(wheelHue, wheelSat, wheelLight);
+    const id = `c${nextColorId.current++}`;
+    setCustomColors((prev) => [...prev, { id, hex: rgbToHex(r, g, b), label: `Color ${prev.length + 1}` }]);
+    setNotes((prev) => prev.map((n) => (colorMigration.noteIds.includes(n.id) ? { ...n, color: id, updatedAt: Date.now() } : n)));
+    setColorMigration(null);
   }
   function addNote(color, mode) {
     pushHistory();
@@ -814,7 +857,7 @@ export default function NotesApp() {
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setNoteColor(note, c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: 7, background: c.hex, border: c.id === note.color ? `2px solid ${text}` : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
               ))}
-              <button onClick={openNoteColorCreator} title="Create new color" aria-label="Create new color" style={{ width: 22, height: 22, borderRadius: 7, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button onClick={() => openNoteColorCreator({ type: 'note', note })} title="Create new color" aria-label="Create new color" style={{ width: 22, height: 22, borderRadius: 7, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Plus size={13} />
               </button>
             </div>
@@ -1375,8 +1418,8 @@ export default function NotesApp() {
                     <label style={{ fontSize: 11, color: muted }}>Lightness</label>
                     <LightnessSlider hue={wheelHue} sat={wheelSat} value={wheelLight} onChange={setWheelLight} />
                     <div style={{ width: '100%', height: 28, borderRadius: 8, background: rgbToHex(...hslToRgb(wheelHue, wheelSat, wheelLight)) }} />
-                    <button onClick={saveCustomColor} disabled={customColors.length >= MAX_CUSTOM} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: '#E8735F', color: '#fff', fontSize: 12, cursor: customColors.length >= MAX_CUSTOM ? 'default' : 'pointer', opacity: customColors.length >= MAX_CUSTOM ? 0.5 : 1 }}>
-                      Save color {customColors.length + 1}
+                    <button onClick={confirmNewNoteColor} disabled={customColors.length >= MAX_CUSTOM} style={{ padding: '7px 10px', borderRadius: 8, border: 'none', background: '#E8735F', color: '#fff', fontSize: 12, cursor: customColors.length >= MAX_CUSTOM ? 'default' : 'pointer', opacity: customColors.length >= MAX_CUSTOM ? 0.5 : 1 }}>
+                      Confirm
                     </button>
                   </div>
                 </div>
@@ -1385,9 +1428,6 @@ export default function NotesApp() {
                     <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <div style={{ width: 20, height: 20, borderRadius: 6, background: c.hex, flexShrink: 0 }} />
                       <input value={c.label} onChange={(e) => renameCustomColor(c.id, e.target.value)} style={{ flex: 1, background: bg, border: borderStyle, borderRadius: 8, padding: '5px 8px', fontSize: 12, color: text, outline: 'none' }} />
-                      {customColors.length > 1 && (
-                        <button onClick={() => deleteCustomColor(c.id)} aria-label="Delete color" title="Delete color" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 2 }}><X size={13} /></button>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -1448,7 +1488,7 @@ export default function NotesApp() {
                         <div style={{ width: 20, height: 20, borderRadius: 6, background: c.hex, flexShrink: 0 }} />
                         <input value={c.label} onChange={(e) => renameCustomColor(c.id, e.target.value)} style={{ flex: 1, background: bg, border: borderStyle, borderRadius: 8, padding: '5px 8px', fontSize: 12, color: text, outline: 'none' }} />
                         {customColors.length > 1 && (
-                          <button onClick={() => deleteCustomColor(c.id)} aria-label="Delete color" title="Delete color" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 2 }}><X size={13} /></button>
+                          <button onClick={() => requestDeleteColor(c)} aria-label="Delete color" title="Delete color" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 2 }}><X size={13} /></button>
                         )}
                       </div>
                     ))}
@@ -1717,6 +1757,59 @@ export default function NotesApp() {
         </div>
       )}
 
+      {colorToDelete && (
+        <div onClick={() => setColorToDelete(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 80 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 340, background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+            <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 20, margin: '0 0 10px' }}>Delete color?</h2>
+            <p style={{ fontSize: 14, color: muted, margin: '0 0 18px' }}>
+              Delete "{colorToDelete.label}"? This can't be undone. Any notes using this color will keep it until you migrate them.
+            </p>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setColorToDelete(null)} style={{ flex: 1, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={confirmDeleteColor} style={{ flex: 1, background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {colorMigration && migrationStep === 'ask' && (
+        <div onClick={() => setColorMigration(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 80 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 380, background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+            <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 20, margin: '0 0 10px' }}>Color no longer exists</h2>
+            <p style={{ fontSize: 14, color: muted, margin: '0 0 10px' }}>
+              The below notes use a color that no longer exists. Migrate these notes to a new color?
+            </p>
+            <ul style={{ margin: '0 0 18px', padding: '0 0 0 18px', fontSize: 13, color: text, maxHeight: 160, overflowY: 'auto' }}>
+              {colorMigration.noteTitles.map((title, i) => <li key={i} style={{ marginBottom: 4 }}>{title}</li>)}
+            </ul>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setColorMigration(null)} style={{ flex: 1, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>No thanks</button>
+              <button onClick={() => setMigrationStep('pick')} style={{ flex: 1, background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Choose new color</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {colorMigration && migrationStep === 'pick' && (
+        <div onClick={() => setColorMigration(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 80 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 380, background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+            <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 20, margin: '0 0 14px' }}>Pick a new color</h2>
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <ColorWheel size={130} hue={wheelHue} sat={wheelSat} onChange={(h, sat) => { setWheelHue(h); setWheelSat(sat); }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minWidth: 120 }}>
+                <label style={{ fontSize: 11, color: muted }}>Lightness</label>
+                <LightnessSlider hue={wheelHue} sat={wheelSat} value={wheelLight} onChange={setWheelLight} />
+                <div style={{ width: '100%', height: 28, borderRadius: 8, background: rgbToHex(...hslToRgb(wheelHue, wheelSat, wheelLight)) }} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+              <button onClick={() => setColorMigration(null)} style={{ flex: 1, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={confirmColorMigration} style={{ flex: 1, background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Confirm</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {trashOpen && (
         <div onClick={() => setTrashOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
@@ -1846,7 +1939,7 @@ export default function NotesApp() {
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setPendingNoteColor(c.id)} title={c.label} style={{ width: 30, height: 30, borderRadius: 9, background: c.hex, cursor: 'pointer', border: pendingNoteColor === c.id ? `2px solid ${text}` : '2px solid transparent' }} />
               ))}
-              <button onClick={openNoteColorCreator} title="Create new color" aria-label="Create new color" style={{ width: 30, height: 30, borderRadius: 9, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+              <button onClick={() => openNoteColorCreator({ type: 'newNote' })} title="Create new color" aria-label="Create new color" style={{ width: 30, height: 30, borderRadius: 9, background: 'none', border: `1.5px dashed ${muted}`, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                 <Plus size={15} />
               </button>
             </div>
