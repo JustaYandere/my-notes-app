@@ -40,7 +40,7 @@ export default function NotesApp() {
   const [themeWheelSat, setThemeWheelSat] = useState(0.4);
   const [themeWheelLight, setThemeWheelLight] = useState(0.15);
   const [themeCardLighter, setThemeCardLighter] = useState(true);
-  const [modalTint, setModalTint] = useState(100);
+  const [modalTint, setModalTint] = useState(50);
   const [separatorColorId, setSeparatorColorId] = useState('none');
   const [titleFocused, setTitleFocused] = useState(false);
   const [mainBgEffect, setMainBgEffect] = useState('color');
@@ -92,6 +92,8 @@ export default function NotesApp() {
   const [menuShareInfo, setMenuShareInfo] = useState(false);
   const [menuReminderExpanded, setMenuReminderExpanded] = useState(false);
   const [selectedTagFilters, setSelectedTagFilters] = useState([]);
+  const [selectedNoteIds, setSelectedNoteIds] = useState([]);
+  const [bulkColorPickerOpen, setBulkColorPickerOpen] = useState(false);
   const [tagFilterMode, setTagFilterMode] = useState('any');
 
   const [pinEnabled, setPinEnabled] = useState(false);
@@ -132,6 +134,8 @@ export default function NotesApp() {
   const titleRefs = useRef({});
   const addItemRefs = useRef({});
   const tagInputRefs = useRef({});
+  const longPressTimer = useRef(null);
+  const longPressFired = useRef(false);
   const noteHistoryPushed = useRef(false);
   const settingsHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
@@ -504,10 +508,31 @@ export default function NotesApp() {
     finalizeClose(false);
   }
   function finalizeClose(discard) {
+    const noteId = editingNote?.id ?? preEditSnapshot?.id;
+    let finalTitle, finalBody, finalChecklist;
     if (discard && preEditSnapshot) {
-      updateNote(preEditSnapshot.id, { title: preEditSnapshot.title, body: preEditSnapshot.body, checklist: preEditSnapshot.checklist, color: preEditSnapshot.color, mode: preEditSnapshot.mode });
+      finalTitle = preEditSnapshot.title;
+      finalBody = preEditSnapshot.body;
+      finalChecklist = preEditSnapshot.checklist;
+      updateNote(preEditSnapshot.id, { title: finalTitle, body: finalBody, checklist: finalChecklist, color: preEditSnapshot.color, mode: preEditSnapshot.mode });
     } else if (noteChangedSincePreEdit()) {
+      finalTitle = draftTitle;
+      finalBody = draftBody;
+      finalChecklist = editingNote?.checklist;
       saveCurrentNote();
+    } else {
+      finalTitle = editingNote?.title;
+      finalBody = editingNote?.body;
+      finalChecklist = editingNote?.checklist;
+    }
+    const isEmpty = noteId != null
+      && !(finalTitle || '').trim()
+      && !(finalBody || '').trim()
+      && (!finalChecklist || finalChecklist.length === 0)
+      && (!editingNote?.voiceNotes || editingNote.voiceNotes.length === 0)
+      && (!editingNote?.tags || editingNote.tags.length === 0);
+    if (isEmpty) {
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
     }
     setEditingId(null);
     setNoteMenuOpen(false);
@@ -625,6 +650,44 @@ export default function NotesApp() {
     downloadBlob(content, `notes-export-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
   }
 
+  function toggleSelectNote(id) {
+    setSelectedNoteIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+  function clearSelection() {
+    setSelectedNoteIds([]);
+    setBulkColorPickerOpen(false);
+  }
+  function handlePressStart(note) {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      toggleSelectNote(note.id);
+    }, 500);
+  }
+  function handlePressEnd() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
+  function handleCardClick(note) {
+    if (longPressFired.current) { longPressFired.current = false; return; }
+    if (selectedNoteIds.length > 0) { toggleSelectNote(note.id); return; }
+    startEditing(note);
+  }
+  function bulkDelete() {
+    if (confirmDelete && !window.confirm(`Move ${selectedNoteIds.length} note${selectedNoteIds.length === 1 ? '' : 's'} to Trash?`)) return;
+    pushHistory();
+    setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, deletedAt: Date.now() } : n)));
+    clearSelection();
+  }
+  function bulkHide() {
+    pushHistory();
+    setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, hidden: true } : n)));
+    clearSelection();
+  }
+  function bulkSetColor(colorId) {
+    pushHistory();
+    setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, color: colorId } : n)));
+    clearSelection();
+  }
   function moveToTrash(id) {
     if (confirmDelete && !window.confirm('Move this note to Trash?')) return;
     pushHistory();
@@ -1031,7 +1094,7 @@ export default function NotesApp() {
             <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
               {modeLetter}
             </button>
-            <button onClick={() => saveCurrentNote()} aria-label="Save" title="Save" style={{ background: 'none', border: 'none', color: justSaved ? '#DFF3E4' : headerText, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
+            <button onClick={() => finalizeClose(false)} aria-label="Save & close" title="Save & close" style={{ background: 'none', border: 'none', color: justSaved ? '#DFF3E4' : headerText, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
               <Save size={20} />
             </button>
             <button onClick={() => setNoteMenuOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: headerText, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
@@ -1084,7 +1147,7 @@ export default function NotesApp() {
                 <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
                   {modeLetter}
                 </button>
-                <button onClick={() => saveCurrentNote()} aria-label="Save" title="Save" style={{ background: 'none', border: 'none', color: justSaved ? '#7FA671' : panelText, cursor: 'pointer', display: 'flex', padding: 4 }}>
+                <button onClick={() => finalizeClose(false)} aria-label="Save & close" title="Save & close" style={{ background: 'none', border: 'none', color: justSaved ? '#7FA671' : panelText, cursor: 'pointer', display: 'flex', padding: 4 }}>
                   <Save size={20} />
                 </button>
                 <button onClick={() => setNoteMenuOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: panelText, cursor: 'pointer', display: 'flex', padding: 4 }}>
@@ -1152,6 +1215,11 @@ export default function NotesApp() {
       <div className="app-shell" style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
+          {syncUser && (
+            <span style={{ fontSize: 12, color: syncStatus === 'syncing' ? muted : syncStatus === 'error' ? '#E8735F' : '#7FA671' }}>
+              {syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error' : 'Synced'}
+            </span>
+          )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
               <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
@@ -1176,16 +1244,17 @@ export default function NotesApp() {
             {pinEnabled && <button onClick={() => setLocked(true)} aria-label="Lock now" title="Lock now" style={toolbarBtnStyle(false)}><Lock size={16} /></button>}
             <button onClick={() => setSettingsOpen(true)} aria-label="Settings" title={syncUser ? `Settings — signed in as ${syncUser.email}` : 'Settings'} style={toolbarBtnStyle(false)}>
               <Settings size={16} />
-              {syncUser && <span style={{ position: 'absolute', bottom: -2, right: -2, width: 8, height: 8, borderRadius: '50%', background: '#7FA671', border: `1.5px solid ${elevated}` }} />}
             </button>
           </div>
         </div>
 
-        <div style={{ background: elevated, border: borderStyle, borderRadius: 14, marginBottom: 24, boxSizing: 'border-box', overflow: 'hidden' }}>
+        <div style={{ background: elevated, border: borderStyle, borderRadius: 14, marginBottom: 6, boxSizing: 'border-box', overflow: 'hidden' }}>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ width: '100%', boxSizing: 'border-box', background: 'transparent', color: text, fontWeight: 600, border: 'none', outline: 'none', padding: '12px 16px', fontSize: 14, cursor: 'pointer' }}>
             {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>Sort by: {opt.label}</option>)}
           </select>
         </div>
+
+        <div style={{ fontSize: 12, color: muted, marginBottom: 20, paddingLeft: 4 }}>{liveNotes.length} {liveNotes.length === 1 ? 'note' : 'notes'}</div>
 
         {filtered.length === 0 && (
           <div style={{ color: muted, fontSize: 14, padding: '40px 0', textAlign: 'center' }}>{query ? `Nothing matches "${query}"` : 'No notes yet — tap + to start one'}</div>
@@ -1202,13 +1271,21 @@ export default function NotesApp() {
                   className="note-card"
                   style={{
                     breakInside: 'avoid', marginBottom: 16, borderRadius: 14, overflow: 'hidden', display: 'flex',
-                    background: elevated, border: borderStyle,
+                    background: elevated, border: selectedNoteIds.includes(note.id) ? '2px solid #E8735F' : borderStyle,
                     boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)', cursor: 'pointer', position: 'relative', color: noteText,
                   }}
-                  onClick={() => startEditing(note)}
+                  onClick={() => handleCardClick(note)}
+                  onPointerDown={() => handlePressStart(note)}
+                  onPointerUp={handlePressEnd}
+                  onPointerLeave={handlePressEnd}
                 >
                   <div style={{ width: 5, flexShrink: 0, background: colorHex }} />
-                  <div style={{ flex: 1, minWidth: 0, padding: `${s(16)}px ${s(16)}px ${s(12)}px` }}>
+                  {selectedNoteIds.length > 0 && (
+                    <div style={{ position: 'absolute', top: 10, left: 10, width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${selectedNoteIds.includes(note.id) ? '#E8735F' : noteText}80`, background: selectedNoteIds.includes(note.id) ? '#E8735F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+                      {selectedNoteIds.includes(note.id) && <Check size={13} color="#fff" />}
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0, padding: `${s(16)}px ${s(16)}px ${s(12)}px`, paddingLeft: selectedNoteIds.length > 0 ? s(16) + 26 : s(16) }}>
                     {note.pinned && <Pin size={13} style={{ position: 'absolute', top: 10, right: 10, opacity: 0.6, color: noteText }} />}
                     <div style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), marginBottom: 4, paddingRight: note.pinned ? 16 : 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}</div>
                     {(() => {
@@ -1260,8 +1337,21 @@ export default function NotesApp() {
               const noteText = text;
               const sepHex = separatorColorId !== 'none' ? separatorColorHexOf(separatorColorId) : null;
               return (
-                <div key={note.id} className="note-row" style={{ display: 'flex', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText }} onClick={() => startEditing(note)}>
-                  <div style={{ width: 4, flexShrink: 0, background: colorHex }} />
+                <div
+                  key={note.id}
+                  className="note-row"
+                  style={{ display: 'flex', alignItems: 'center', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText, outline: selectedNoteIds.includes(note.id) ? '2px solid #E8735F' : 'none', outlineOffset: -2 }}
+                  onClick={() => handleCardClick(note)}
+                  onPointerDown={() => handlePressStart(note)}
+                  onPointerUp={handlePressEnd}
+                  onPointerLeave={handlePressEnd}
+                >
+                  <div style={{ width: 4, alignSelf: 'stretch', flexShrink: 0, background: colorHex }} />
+                  {selectedNoteIds.length > 0 && (
+                    <div style={{ width: 20, height: 20, marginLeft: 10, flexShrink: 0, borderRadius: '50%', border: `1.5px solid ${selectedNoteIds.includes(note.id) ? '#E8735F' : noteText}80`, background: selectedNoteIds.includes(note.id) ? '#E8735F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {selectedNoteIds.includes(note.id) && <Check size={13} color="#fff" />}
+                    </div>
+                  )}
                   <div style={{ flex: 1, minWidth: 0, padding: `${s(14)}px ${s(16)}px` }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1321,9 +1411,34 @@ export default function NotesApp() {
         )}
       </div>
 
-      <button onClick={openNewNoteSetup} aria-label="Add note" style={{ position: 'fixed', bottom: allTags.length > 0 ? 92 : 28, right: 28, width: 56, height: 56, borderRadius: '50%', background: '#E8735F', color: '#fff', border: 'none', boxShadow: '0 4px 14px rgba(232,115,95,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
-        <Plus size={24} />
-      </button>
+      {selectedNoteIds.length === 0 && (
+        <button onClick={openNewNoteSetup} aria-label="Add note" style={{ position: 'fixed', bottom: allTags.length > 0 ? 92 : 28, right: 28, width: 56, height: 56, borderRadius: '50%', background: '#E8735F', color: '#fff', border: 'none', boxShadow: '0 4px 14px rgba(232,115,95,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 10 }}>
+          <Plus size={24} />
+        </button>
+      )}
+
+      {selectedNoteIds.length > 0 && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: elevated, borderTop: borderStyle, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 14, zIndex: 40, boxShadow: '0 -4px 14px rgba(0,0,0,0.15)' }}>
+          <button onClick={clearSelection} aria-label="Cancel selection" title="Cancel selection" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><X size={20} /></button>
+          <span style={{ fontSize: 14, color: text, fontWeight: 600, flexShrink: 0 }}>{selectedNoteIds.length} selected</span>
+          <div style={{ flex: 1 }} />
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setBulkColorPickerOpen((v) => !v)} aria-label="Set color" title="Set color" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Paintbrush size={20} /></button>
+            {bulkColorPickerOpen && (
+              <>
+                <div onClick={() => setBulkColorPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+                <div style={{ position: 'absolute', bottom: '100%', right: 0, display: 'flex', flexWrap: 'wrap', gap: 6, width: 150, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 8, zIndex: 2, marginBottom: 6 }}>
+                  {customColors.map((c) => (
+                    <button key={c.id} onClick={() => bulkSetColor(c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: 7, background: c.hex, border: '2px solid transparent', cursor: 'pointer', padding: 0 }} />
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={bulkHide} aria-label="Hide notes" title="Hide notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><EyeOff size={20} /></button>
+          <button onClick={bulkDelete} aria-label="Delete notes" title="Delete notes" style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={20} /></button>
+        </div>
+      )}
 
       {backSaveToast && (
         <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#2f2f2f', color: '#fff', padding: '8px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, zIndex: 200, boxShadow: '0 4px 14px rgba(0,0,0,0.35)', pointerEvents: 'none' }}>
@@ -1609,11 +1724,8 @@ export default function NotesApp() {
                 </div>
 
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
-                  <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />
-                  <button onClick={() => { closeSettings(); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
-                    <GitCompare size={15} /> Find similar notes{similarPairs.length > 0 ? ` (${similarPairs.length})` : ''}
-                  </button>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Enlarged note transparency: {modalTint}%</label>
+                  <input type="range" min={5} max={100} value={modalTint} onChange={(e) => setModalTint(Number(e.target.value))} style={{ width: '100%', ...rangeAccentStyle }} />
                 </div>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
@@ -1641,9 +1753,12 @@ export default function NotesApp() {
 
             {settingsSection === 'other' && (
               <>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Enlarged note transparency: {modalTint}%</label>
-                  <input type="range" min={5} max={100} value={modalTint} onChange={(e) => setModalTint(Number(e.target.value))} style={{ width: '100%', ...rangeAccentStyle }} />
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
+                  <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />
+                  <button onClick={() => { closeSettings(); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
+                    <GitCompare size={15} /> Find similar notes{similarPairs.length > 0 ? ` (${similarPairs.length})` : ''}
+                  </button>
                 </div>
 
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
