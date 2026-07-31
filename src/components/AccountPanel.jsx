@@ -139,6 +139,20 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     }
   }
 
+  async function handleGoogleSignIn() {
+    setError('');
+    setInfo('');
+    setLoading(true);
+    setKeepSignedIn(keepSignedInChecked);
+    try {
+      const { error: err } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+      if (err) throw err;
+    } catch (err) {
+      setError(errMsg(err));
+      setLoading(false);
+    }
+  }
+
   async function handleVerifyLoginMfa(e) {
     e.preventDefault();
     setError('');
@@ -339,6 +353,20 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
 
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <button type="button" onClick={handleGoogleSignIn} disabled={loading} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 8, padding: '9px 12px', fontSize: 13, cursor: 'pointer' }}>
+        <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35 24 35c-6.1 0-11-4.9-11-11s4.9-11 11-11c2.8 0 5.3 1 7.3 2.7l6-6C33.6 6.5 29.1 4.5 24 4.5 12.9 4.5 4 13.4 4 24.5s8.9 20 20 20 20-8.9 20-20c0-1.4-.1-2.7-.4-4z"/>
+          <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13.5 24 13.5c2.8 0 5.3 1 7.3 2.7l6-6C33.6 6.5 29.1 4.5 24 4.5c-7.7 0-14.4 4.4-17.7 10.2z"/>
+          <path fill="#4CAF50" d="M24 44.5c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.6 26.7 36.5 24 36.5c-5.3 0-9.7-3.6-11.3-8.4l-6.5 5C9.5 39.9 16.2 44.5 24 44.5z"/>
+          <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.2 5.2C40.9 36.4 44 30.9 44 24.5c0-1.4-.1-2.7-.4-4z"/>
+        </svg>
+        Continue with Google
+      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: muted, fontSize: 11 }}>
+        <div style={{ flex: 1, height: 1, background: muted, opacity: 0.3 }} />
+        or
+        <div style={{ flex: 1, height: 1, background: muted, opacity: 0.3 }} />
+      </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
         <button type="button" onClick={() => setMode('login')} style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: mode === 'login' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 12, cursor: 'pointer' }}>Log in</button>
         <button type="button" onClick={() => setMode('signup')} style={{ flex: 1, padding: '6px 8px', borderRadius: 8, border: mode === 'signup' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 12, cursor: 'pointer' }}>Sign up</button>
