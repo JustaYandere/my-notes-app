@@ -64,6 +64,7 @@ export default function NotesApp() {
   const [mainBgImage, setMainBgImage] = useState(null);
   const [syncUser, setSyncUser] = useState(null);
   const [syncStatus, setSyncStatus] = useState('idle');
+  const [syncError, setSyncError] = useState('');
   const [shareColors, setShareColors] = useState(false);
 
   const [notes, setNotes] = useState(SEED_NOTES);
@@ -167,7 +168,7 @@ export default function NotesApp() {
   const settingsHistoryPushed = useRef(false);
   const settingsSectionHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
-  const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus });
+  const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
   useSettingsSync({
     values: { customColors, customThemes, activeThemeId, modalTint, separatorColorId, mainBgEffect, mainBgImage, fontChoice },
     setters: { customColors: setCustomColors, customThemes: setCustomThemes, activeThemeId: setActiveThemeId, modalTint: setModalTint, separatorColorId: setSeparatorColorId, mainBgEffect: setMainBgEffect, mainBgImage: setMainBgImage, fontChoice: setFontChoice },
@@ -1441,8 +1442,12 @@ export default function NotesApp() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12, color: muted, marginBottom: 10, padding: '0 4px' }}>
           <span>{liveNotes.length} {liveNotes.length === 1 ? 'note' : 'notes'}</span>
           {syncUser && (
-            <span style={{ color: syncStatus === 'syncing' ? muted : syncStatus === 'error' ? '#E8735F' : '#7FA671' }}>
-              {syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error' : 'Synced'}
+            <span
+              onClick={() => { if (syncStatus === 'error' && syncError) window.alert(syncError); }}
+              title={syncStatus === 'error' ? syncError : undefined}
+              style={{ color: syncStatus === 'syncing' ? muted : syncStatus === 'error' ? '#E8735F' : '#7FA671', cursor: syncStatus === 'error' ? 'pointer' : 'default', textDecoration: syncStatus === 'error' ? 'underline' : 'none' }}
+            >
+              {syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error (tap for details)' : 'Synced'}
             </span>
           )}
         </div>
@@ -2050,7 +2055,7 @@ export default function NotesApp() {
             {settingsSection === 'account' && (
               <>
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} onMfaStatusChange={setHas2FA} />
+                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} syncError={syncError} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} onMfaStatusChange={setHas2FA} />
                 </div>
 
                 {!accountRecoveryFocus && (

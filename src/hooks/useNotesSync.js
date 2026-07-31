@@ -46,7 +46,7 @@ function fromCloudRow(row, localId) {
 // Syncs local `notes` state with a Supabase `notes` table while a user is signed in:
 // pulls + merges existing cloud notes on sign-in, pushes local changes (debounced),
 // and listens for realtime changes from other devices.
-export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus }) {
+export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError }) {
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
   const pushTimerRef = useRef(null);
   const syncUserRef = useRef(syncUser);
@@ -59,7 +59,12 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       setSyncStatus?.('syncing');
       const { data, error } = await supabase.from('notes').select('*').eq('user_id', syncUser.id);
       if (cancelled) return;
-      if (error) { setSyncStatus?.('error'); return; }
+      if (error) {
+        console.error('Sync pull failed:', error);
+        setSyncStatus?.('error');
+        setSyncError?.(error.message || 'Could not load your cloud notes.');
+        return;
+      }
       setNotes((prev) => {
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
@@ -84,6 +89,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         return merged;
       });
       setSyncStatus?.('idle');
+      setSyncError?.('');
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,14 +114,23 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       if (dirty.length === 0) return;
       setSyncStatus?.('syncing');
       let hadError = false;
+      let lastErrorMessage = '';
       for (const note of dirty) {
         if (!syncUserRef.current) break;
         const row = toCloudRow(note, syncUser.id);
         const { error } = await supabase.from('notes').upsert(row);
-        if (error) { hadError = true; continue; }
+        if (error) {
+          console.error('Sync push failed:', error);
+          hadError = true;
+          lastErrorMessage = error.message || 'Could not save a note to the cloud.';
+          continue;
+        }
         syncedRef.current[note.id] = note.updatedAt;
       }
-      if (syncUserRef.current) setSyncStatus?.(hadError ? 'error' : 'idle');
+      if (syncUserRef.current) {
+        setSyncStatus?.(hadError ? 'error' : 'idle');
+        setSyncError?.(hadError ? lastErrorMessage : '');
+      }
     }, 800);
     return () => clearTimeout(pushTimerRef.current);
   }, [notes, syncUser, setSyncStatus]);

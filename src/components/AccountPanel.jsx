@@ -11,7 +11,7 @@ function errMsg(err) {
   return msg && msg !== '{}' ? msg : 'Something went wrong — please try again.';
 }
 
-export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled, onFocusModeChange, onMfaStatusChange }) {
+export default function AccountPanel({ onUserChange, syncStatus, syncError, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled, onFocusModeChange, onMfaStatusChange }) {
   const [user, setUser] = useState(null);
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -279,6 +279,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
       <div>
         <p style={{ fontSize: 13, color: text, margin: '0 0 4px' }}>Signed in as <strong>{user.email}</strong></p>
         <p style={{ fontSize: 12, color: statusColor, margin: '0 0 8px' }}>{statusLabel}</p>
+        {syncStatus === 'error' && syncError && <p style={{ fontSize: 11, color: muted, margin: '-4px 0 8px' }}>{syncError}</p>}
         <button onClick={handleSignOut} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
           <LogOut size={14} /> Sign out
         </button>
