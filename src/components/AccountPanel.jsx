@@ -38,6 +38,18 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [passwordRecovery, mode]);
 
+  useEffect(() => {
+    // The Google OAuth redirect navigates away from the app. If the user hits
+    // "back" before completing it, the browser often restores this page from
+    // bfcache with `loading` still frozen at true from right before we left —
+    // leaving every button permanently disabled. Reset on bfcache restore.
+    function onPageShow(e) {
+      if (e.persisted) setLoading(false);
+    }
+    window.addEventListener('pageshow', onPageShow);
+    return () => window.removeEventListener('pageshow', onPageShow);
+  }, []);
+
   async function refreshMfaFactors() {
     if (!supabaseEnabled) return;
     const { data } = await supabase.auth.mfa.listFactors();
