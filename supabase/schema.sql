@@ -11,6 +11,7 @@ create table if not exists notes (
   tags jsonb not null default '[]',
   color text,
   voice_notes jsonb not null default '[]',
+  images jsonb not null default '[]',
   reminder_at timestamptz,
   reminder_notified boolean not null default false,
   created_at timestamptz not null default now(),

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LogOut, ArrowLeft } from 'lucide-react';
+import { LogOut, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { supabase, supabaseEnabled, setKeepSignedIn } from '../lib/supabaseClient';
 
 const RECOVERY_MODES = ['forgotChoice', 'forgotEmail', 'forgotPassword'];
@@ -22,21 +22,51 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
   const [keepSignedInChecked, setKeepSignedInChecked] = useState(true);
 
+  // Two-factor login challenge (after password is correct but a TOTP code is still required)
+  const [mfaPending, setMfaPending] = useState(false);
+  const [mfaLoginCode, setMfaLoginCode] = useState('');
+
+  // Two-factor enrollment (managing 2FA from the signed-in Account screen)
+  const [mfaFactor, setMfaFactor] = useState(null); // the verified totp factor, if any
+  const [mfaSetup, setMfaSetup] = useState(null); // { factorId, qrCode, secret } while enrolling
+  const [mfaSetupCode, setMfaSetupCode] = useState('');
+  const [mfaError, setMfaError] = useState('');
+
   useEffect(() => {
     onFocusModeChange?.(passwordRecovery || RECOVERY_MODES.includes(mode));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [passwordRecovery, mode]);
 
+  async function refreshMfaFactors() {
+    if (!supabaseEnabled) return;
+    const { data } = await supabase.auth.mfa.listFactors();
+    setMfaFactor(data?.totp?.find((f) => f.status === 'verified') || null);
+  }
+
   useEffect(() => {
     if (!supabaseEnabled) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user || null);
-      onUserChange?.(data.session?.user || null);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-      onUserChange?.(session?.user || null);
-    });
+    async function handleSession(session) {
+      if (!session) {
+        setUser(null);
+        setMfaPending(false);
+        setMfaFactor(null);
+        onUserChange?.(null);
+        return;
+      }
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal?.nextLevel === 'aal2' && aal.nextLevel !== aal.currentLevel) {
+        setMfaPending(true);
+        setUser(null);
+        onUserChange?.(null);
+        return;
+      }
+      setMfaPending(false);
+      setUser(session.user);
+      onUserChange?.(session.user);
+      refreshMfaFactors();
+    }
+    supabase.auth.getSession().then(({ data }) => handleSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => handleSession(session));
     return () => sub.subscription.unsubscribe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -101,6 +131,32 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     }
   }
 
+  async function handleVerifyLoginMfa(e) {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      const { data: factors, error: listErr } = await supabase.auth.mfa.listFactors();
+      if (listErr) throw listErr;
+      const totp = factors?.totp?.[0];
+      if (!totp) throw new Error('No authenticator app found on this account.');
+      const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({ factorId: totp.id });
+      if (chErr) throw chErr;
+      const { error: vErr } = await supabase.auth.mfa.verify({ factorId: totp.id, challengeId: challenge.id, code: mfaLoginCode });
+      if (vErr) throw vErr;
+      setMfaLoginCode('');
+      setMfaPending(false);
+      const { data } = await supabase.auth.getSession();
+      setUser(data.session?.user || null);
+      onUserChange?.(data.session?.user || null);
+      refreshMfaFactors();
+    } catch (err) {
+      setError(errMsg(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleSignOut() {
     setLoading(true);
     await supabase.auth.signOut();
@@ -111,6 +167,43 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     setError('');
     setInfo('');
     setMode('login');
+  }
+
+  async function startMfaEnroll() {
+    setMfaError('');
+    const { data, error: err } = await supabase.auth.mfa.enroll({ factorType: 'totp' });
+    if (err) { setMfaError(errMsg(err)); return; }
+    setMfaSetup({ factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret });
+  }
+
+  async function confirmMfaEnroll(e) {
+    e.preventDefault();
+    setMfaError('');
+    try {
+      const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({ factorId: mfaSetup.factorId });
+      if (chErr) throw chErr;
+      const { error: vErr } = await supabase.auth.mfa.verify({ factorId: mfaSetup.factorId, challengeId: challenge.id, code: mfaSetupCode });
+      if (vErr) throw vErr;
+      setMfaSetup(null);
+      setMfaSetupCode('');
+      refreshMfaFactors();
+    } catch (err) {
+      setMfaError(errMsg(err));
+    }
+  }
+
+  async function cancelMfaEnroll() {
+    if (mfaSetup) await supabase.auth.mfa.unenroll({ factorId: mfaSetup.factorId });
+    setMfaSetup(null);
+    setMfaSetupCode('');
+    setMfaError('');
+  }
+
+  async function disableMfa() {
+    if (!mfaFactor) return;
+    if (!window.confirm('Turn off two-factor authentication?')) return;
+    await supabase.auth.mfa.unenroll({ factorId: mfaFactor.id });
+    refreshMfaFactors();
   }
 
   if (!supabaseEnabled) {
@@ -132,6 +225,19 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     );
   }
 
+  if (mfaPending) {
+    return (
+      <form onSubmit={handleVerifyLoginMfa} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <p style={{ fontSize: 13, color: text, margin: '0 0 4px' }}>Enter the 6-digit code from your authenticator app</p>
+        <input type="text" inputMode="numeric" autoFocus required placeholder="123456" value={mfaLoginCode} onChange={(e) => setMfaLoginCode(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 20, letterSpacing: 4, textAlign: 'center', color: text, outline: 'none' }} />
+        {error && <p style={{ fontSize: 11, color: '#E8735F', margin: 0 }}>{error}</p>}
+        <button type="submit" disabled={loading || mfaLoginCode.length < 6} style={{ background: '#E8735F', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 12px', fontSize: 13, cursor: 'pointer' }}>
+          {loading ? 'Verifying…' : 'Verify'}
+        </button>
+      </form>
+    );
+  }
+
   if (user) {
     const statusLabel = syncStatus === 'syncing' ? 'Syncing…' : syncStatus === 'error' ? 'Sync error' : 'Synced';
     const statusColor = syncStatus === 'error' ? '#E8735F' : syncStatus === 'syncing' ? muted : '#7FA671';
@@ -142,6 +248,34 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
         <button onClick={handleSignOut} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
           <LogOut size={14} /> Sign out
         </button>
+
+        <div style={{ marginTop: 16, paddingTop: 14, borderTop: borderStyle }}>
+          <p style={{ fontSize: 13, color: text, display: 'flex', alignItems: 'center', gap: 6, margin: '0 0 8px' }}><ShieldCheck size={15} /> Two-factor authentication</p>
+          {mfaSetup ? (
+            <form onSubmit={confirmMfaEnroll} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <p style={{ fontSize: 12, color: muted, margin: 0 }}>Scan this in your authenticator app (Google Authenticator, Authy, etc.), or enter the code manually.</p>
+              <img src={mfaSetup.qrCode} alt="Two-factor QR code" style={{ width: 160, height: 160, alignSelf: 'center', background: '#fff', borderRadius: 8, padding: 8 }} />
+              <p style={{ fontSize: 11, color: muted, textAlign: 'center', wordBreak: 'break-all', margin: 0 }}>{mfaSetup.secret}</p>
+              <input type="text" inputMode="numeric" required autoFocus placeholder="Enter 6-digit code" value={mfaSetupCode} onChange={(e) => setMfaSetupCode(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 16, letterSpacing: 2, textAlign: 'center', color: text, outline: 'none' }} />
+              {mfaError && <p style={{ fontSize: 11, color: '#E8735F', margin: 0 }}>{mfaError}</p>}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button type="button" onClick={cancelMfaEnroll} style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" disabled={mfaSetupCode.length < 6} style={{ flex: 1, background: '#E8735F', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 10px', fontSize: 13, cursor: 'pointer' }}>Confirm</button>
+              </div>
+            </form>
+          ) : mfaFactor ? (
+            <div>
+              <p style={{ fontSize: 12, color: '#7FA671', margin: '0 0 8px' }}>Two-factor authentication is on.</p>
+              <button onClick={disableMfa} style={{ background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>Turn off</button>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: 12, color: muted, margin: '0 0 8px' }}>Require a code from an authenticator app when signing in.</p>
+              {mfaError && <p style={{ fontSize: 11, color: '#E8735F', margin: '0 0 8px' }}>{mfaError}</p>}
+              <button onClick={startMfaEnroll} style={{ background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>Enable two-factor authentication</button>
+            </div>
+          )}
+        </div>
       </div>
     );
   }

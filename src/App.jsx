@@ -21,6 +21,7 @@ import LightnessSlider from './components/LightnessSlider';
 import Checkbox from './components/Checkbox';
 import MainBackdrop from './components/MainBackdrop';
 import VoiceNotes from './components/VoiceNotes';
+import NoteImages from './components/NoteImages';
 import AccountPanel from './components/AccountPanel';
 import ConnectedAccounts from './components/ConnectedAccounts';
 import ShareNotePicker from './components/ShareNotePicker';
@@ -110,6 +111,9 @@ export default function NotesApp() {
   const [selectedTagFilters, setSelectedTagFilters] = useState([]);
   const [selectedNoteIds, setSelectedNoteIds] = useState([]);
   const [bulkColorPickerOpen, setBulkColorPickerOpen] = useState(false);
+  const [bulkSharePickerOpen, setBulkSharePickerOpen] = useState(false);
+  const [bulkShareConnections, setBulkShareConnections] = useState([]);
+  const [bulkShareStatus, setBulkShareStatus] = useState('');
   const [tagFilterMode, setTagFilterMode] = useState('any');
 
   const [pinEnabled, setPinEnabled] = useState(false);
@@ -183,7 +187,7 @@ export default function NotesApp() {
       if (legacyNotes) { savedNotes = legacyNotes; saveLocal(NOTES_KEY, legacyNotes); }
     }
     if (Array.isArray(savedNotes) && savedNotes.length) {
-      let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], ...n }));
+      let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], images: [], ...n }));
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
       setNotes(initialNotes);
       nextId.current = Math.max(4, ...initialNotes.map((n) => (n.id || 0) + 1));
@@ -494,7 +498,7 @@ export default function NotesApp() {
     const now = Date.now();
     const resolvedColor = color || customColors[0]?.id;
     const resolvedMode = mode || 'note';
-    setNotes((prev) => [{ id, title: '', body: '', mode: resolvedMode, checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], color: resolvedColor, createdAt: now, updatedAt: now }, ...prev]);
+    setNotes((prev) => [{ id, title: '', body: '', mode: resolvedMode, checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], images: [], color: resolvedColor, createdAt: now, updatedAt: now }, ...prev]);
     setEditingId(id);
     setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode });
     setNewNoteSetupOpen(false);
@@ -515,6 +519,7 @@ export default function NotesApp() {
       hidden: false,
       tags: cloudNote.tags || [],
       voiceNotes: cloudNote.voice_notes || [],
+      images: cloudNote.images || [],
       color: cloudNote.color || customColors[0]?.id,
       createdAt: now,
       updatedAt: now,
@@ -566,6 +571,7 @@ export default function NotesApp() {
       && !(finalBody || '').trim()
       && (!finalChecklist || finalChecklist.length === 0)
       && (!editingNote?.voiceNotes || editingNote.voiceNotes.length === 0)
+      && (!editingNote?.images || editingNote.images.length === 0)
       && (!editingNote?.tags || editingNote.tags.length === 0);
     if (isEmpty) {
       if (editingNote?.cloudId) deleteCloudNote(editingNote.cloudId);
@@ -669,6 +675,20 @@ export default function NotesApp() {
   function clearNoteReminder(note) { pushHistory(); updateNote(note.id, { reminderAt: null, reminderNotified: false }); }
   function addVoiceNote(note, clip) { pushHistory(); updateNote(note.id, { voiceNotes: [...(note.voiceNotes || []), clip] }); }
   function deleteVoiceNote(note, clipId) { pushHistory(); updateNote(note.id, { voiceNotes: (note.voiceNotes || []).filter((c) => c.id !== clipId) }); }
+  function addImage(note, image) { pushHistory(); updateNote(note.id, { images: [...(note.images || []), image] }); }
+  function deleteImage(note, imageId) { pushHistory(); updateNote(note.id, { images: (note.images || []).filter((img) => img.id !== imageId) }); }
+  function pasteImageFromClipboard(e, note) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageItem = [...items].find((it) => it.type.startsWith('image/'));
+    if (!imageItem) return;
+    e.preventDefault();
+    const file = imageItem.getAsFile();
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => addImage(note, { id: `img${Date.now()}${Math.random().toString(36).slice(2, 6)}`, dataUrl: reader.result });
+    reader.readAsDataURL(file);
+  }
   function hideNote(note) { pushHistory(); updateNote(note.id, { hidden: true }); setEditingId(null); }
   function unhideNote(id) { pushHistory(); updateNote(id, { hidden: false }); }
   function addTag(note, tag) {
@@ -768,6 +788,25 @@ export default function NotesApp() {
     downloadBlob(content, `notes-export-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
     clearSelection();
   }
+  async function openBulkSharePicker() {
+    setBulkSharePickerOpen((v) => !v);
+    setBulkShareStatus('');
+    if (!supabaseEnabled || !syncUser) return;
+    const { data: connData } = await supabase.from('connections').select('*').eq('status', 'accepted').or(`requester_id.eq.${syncUser.id},recipient_id.eq.${syncUser.id}`);
+    const otherIds = (connData || []).map((c) => (c.requester_id === syncUser.id ? c.recipient_id : c.requester_id));
+    if (otherIds.length === 0) { setBulkShareConnections([]); return; }
+    const { data: profileRows } = await supabase.from('profiles').select('id,email').in('id', otherIds);
+    setBulkShareConnections(profileRows || []);
+  }
+  async function bulkShareWith(connectionId) {
+    const selected = notes.filter((n) => selectedNoteIds.includes(n.id) && n.cloudId);
+    if (selected.length === 0) { setBulkShareStatus("These notes haven't finished syncing yet — try again in a moment."); return; }
+    const rows = selected.map((note) => ({ note_id: note.cloudId, owner_id: syncUser.id, shared_with_id: connectionId }));
+    const { error } = await supabase.from('note_shares').upsert(rows, { onConflict: 'note_id,shared_with_id' });
+    if (error) { setBulkShareStatus('Could not share — try again.'); return; }
+    setBulkSharePickerOpen(false);
+    clearSelection();
+  }
   function moveToTrash(id) {
     if (confirmDelete && !window.confirm('Move this note to Trash?')) return;
     pushHistory();
@@ -840,6 +879,7 @@ export default function NotesApp() {
           reminderAt: typeof n.reminderAt === 'number' ? n.reminderAt : null,
           reminderNotified: !!n.reminderNotified,
           voiceNotes: Array.isArray(n.voiceNotes) ? n.voiceNotes : [],
+          images: Array.isArray(n.images) ? n.images : [],
         }));
         pushHistory();
         setNotes(cleaned);
@@ -907,6 +947,15 @@ export default function NotesApp() {
     setPin(newPin); setPinEnabled(true); setShowPinSetup(false); setNewPin(''); setConfirmPin('');
   }
   function removePin() { setPinEnabled(false); setPin(''); setShowPinSetup(false); }
+  async function forgotPinSignOut() {
+    if (!window.confirm("This removes your PIN and signs you out of your account. Your notes stay on this device. Continue?")) return;
+    removePin();
+    setPinFailCount(0);
+    setPinLockUntil(0);
+    setLocked(false);
+    setPinError('');
+    if (supabaseEnabled && syncUser) await supabase.auth.signOut();
+  }
   function tryUnlock() {
     checkPin(pinEntry, () => setLocked(false), setPinError, setPinEntry);
   }
@@ -1056,6 +1105,7 @@ export default function NotesApp() {
               ref={(el) => (textareaRefs.current[note.id] = el)}
               value={draftBody}
               onChange={(e) => setDraftBody(e.target.value)}
+              onPaste={(e) => pasteImageFromClipboard(e, note)}
               onBlur={() => {
                 if (autoMoveCompleted) {
                   const reordered = reorderBodyByStrike(draftBody);
@@ -1079,6 +1129,14 @@ export default function NotesApp() {
           onAdd={(clip) => addVoiceNote(note, clip)}
           onDelete={(clipId) => deleteVoiceNote(note, clipId)}
           accent={colorHex}
+          text={noteText}
+          muted={noteMuted}
+        />
+
+        <NoteImages
+          images={note.images || []}
+          onAdd={(image) => addImage(note, image)}
+          onDelete={(imageId) => deleteImage(note, imageId)}
           text={noteText}
           muted={noteMuted}
         />
@@ -1257,6 +1315,7 @@ export default function NotesApp() {
           <input type="password" inputMode="numeric" value={pinEntry} onChange={(e) => setPinEntry(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => e.key === 'Enter' && tryUnlock()} placeholder="Enter PIN" autoFocus style={{ width: '100%', boxSizing: 'border-box', textAlign: 'center', fontSize: 20, letterSpacing: 4, padding: '10px 12px', borderRadius: 10, border: borderStyle, background: elevated, color: text, outline: 'none', marginBottom: 10 }} />
           {pinError && <div style={{ color: '#E8735F', fontSize: 13, marginBottom: 10 }}>{pinError}</div>}
           <button onClick={tryUnlock} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: 'none', background: '#E8735F', color: '#fff', fontSize: 14, cursor: 'pointer' }}>Unlock</button>
+          <button onClick={forgotPinSignOut} style={{ marginTop: 14, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Forgot PIN? Sign out & remove PIN</button>
         </div>
       </div>
     );
@@ -1388,11 +1447,16 @@ export default function NotesApp() {
                         <Bell size={11} /> {formatReminder(note.reminderAt)}
                       </div>
                     )}
-                    {(note.voiceNotes?.length > 0 || (note.tags && note.tags.length > 0)) && (
+                    {(note.voiceNotes?.length > 0 || note.images?.length > 0 || (note.tags && note.tags.length > 0)) && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
                         {note.voiceNotes?.length > 0 && (
                           <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
                             <Mic size={10} /> voice note
+                          </span>
+                        )}
+                        {note.images?.length > 0 && (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                            <ImageIcon size={10} /> {note.images.length}
                           </span>
                         )}
                         {note.tags?.slice(0, 2).map((tag) => (
@@ -1447,7 +1511,7 @@ export default function NotesApp() {
                             <Bell size={11} /> {formatReminder(note.reminderAt)}
                           </span>
                         )}
-                        {(note.voiceNotes?.length > 0 || (note.tags && note.tags.length > 0)) && (
+                        {(note.voiceNotes?.length > 0 || note.images?.length > 0 || (note.tags && note.tags.length > 0)) && (
                           <div style={{ display: 'flex', gap: 5, overflow: 'hidden', whiteSpace: 'nowrap', minWidth: 0 }}>
                             {note.voiceNotes?.length > 0 && (
                               <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
@@ -1519,6 +1583,24 @@ export default function NotesApp() {
             )}
           </div>
           <button onClick={bulkExport} aria-label="Export notes" title="Export notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Download size={20} /></button>
+          {syncUser && (
+            <div style={{ position: 'relative' }}>
+              <button onClick={openBulkSharePicker} aria-label="Move to connected notes" title="Move to connected notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Users size={20} /></button>
+              {bulkSharePickerOpen && (
+                <>
+                  <div onClick={() => setBulkSharePickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+                  <div style={{ position: 'absolute', bottom: '100%', right: 0, display: 'flex', flexDirection: 'column', gap: 4, width: 200, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 10, zIndex: 2, marginBottom: 6 }}>
+                    <span style={{ fontSize: 12, color: muted, marginBottom: 2 }}>Share with a connection</span>
+                    {bulkShareConnections.length === 0 && <span style={{ fontSize: 12, color: muted }}>No connected accounts yet.</span>}
+                    {bulkShareConnections.map((c) => (
+                      <button key={c.id} onClick={() => bulkShareWith(c.id)} style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '4px 0', fontSize: 13, textAlign: 'left' }}>{c.email}</button>
+                    ))}
+                    {bulkShareStatus && <span style={{ fontSize: 11, color: '#E8735F' }}>{bulkShareStatus}</span>}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <button onClick={bulkHide} aria-label="Hide notes" title="Hide notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><EyeOff size={20} /></button>
           <button onClick={bulkDelete} aria-label="Delete notes" title="Delete notes" style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={20} /></button>
         </div>
