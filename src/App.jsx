@@ -690,8 +690,18 @@ export default function NotesApp() {
   function clearNoteReminder(note) { pushHistory(); updateNote(note.id, { reminderAt: null, reminderNotified: false }); }
   function addVoiceNote(note, clip) { pushHistory(); updateNote(note.id, { voiceNotes: [...(note.voiceNotes || []), clip] }); }
   function deleteVoiceNote(note, clipId) { pushHistory(); updateNote(note.id, { voiceNotes: (note.voiceNotes || []).filter((c) => c.id !== clipId) }); }
-  function addImage(note, image) { pushHistory(); updateNote(note.id, { images: [...(note.images || []), image] }); }
-  function deleteImage(note, imageId) { pushHistory(); updateNote(note.id, { images: (note.images || []).filter((img) => img.id !== imageId) }); }
+  function addImage(note, image) {
+    pushHistory();
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, images: [...(n.images || []), image], updatedAt: Date.now() } : n)));
+  }
+  function deleteImage(note, imageId) {
+    pushHistory();
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, images: (n.images || []).filter((img) => img.id !== imageId), updatedAt: Date.now() } : n)));
+  }
+  function autoGrowTextarea(el) {
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }
   function pasteImageFromClipboard(e, note) {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -1128,11 +1138,11 @@ export default function NotesApp() {
     return (
       <>
         {mode !== 'list' && (
-          <div style={{ flex: mode === 'both' ? '4 1 0%' : '1 1 0%', minHeight: 0, overflowY: 'auto' }}>
+          <div style={mode === 'both' ? { flex: '4 1 0%', minHeight: 0, overflowY: 'auto' } : { flex: '0 0 auto' }}>
             <textarea
-              ref={(el) => (textareaRefs.current[note.id] = el)}
+              ref={(el) => { textareaRefs.current[note.id] = el; if (el && mode !== 'both') autoGrowTextarea(el); }}
               value={draftBody}
-              onChange={(e) => setDraftBody(e.target.value)}
+              onChange={(e) => { setDraftBody(e.target.value); if (mode !== 'both') autoGrowTextarea(e.target); }}
               onPaste={(e) => pasteImageFromClipboard(e, note)}
               onBlur={() => {
                 if (autoMoveCompleted) {
@@ -1143,7 +1153,7 @@ export default function NotesApp() {
               placeholder="Write something..."
               spellCheck={true}
               style={{
-                width: '100%', height: '100%', minHeight: '100%', boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none',
+                width: '100%', height: mode === 'both' ? '100%' : 'auto', minHeight: mode === 'both' ? '100%' : 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: mode === 'both' ? 'auto' : 'hidden',
                 fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0, ...ruledBg,
               }}
             />
@@ -1267,7 +1277,7 @@ export default function NotesApp() {
             </button>
             {NoteMenu(note)}
           </div>
-          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: `${s(18)}px ${s(20)}px`, position: 'relative' }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: `${s(18)}px ${s(20)}px`, position: 'relative' }}>
             {EditorBody(note, colorHex, bg)}
           </div>
           {TagFooter(note, bg)}
@@ -1285,7 +1295,7 @@ export default function NotesApp() {
         <div
           onClick={(e) => e.stopPropagation()}
           style={{
-            width: '100%', maxWidth: 560, height: '86vh', borderRadius: 18, overflow: 'hidden',
+            width: '100%', maxWidth: 560, height: '86dvh', borderRadius: 18, overflow: 'hidden',
             background: panelBg, border: `1px solid ${colorHex}70`,
             color: panelText, boxShadow: '0 20px 60px rgba(0,0,0,0.4)', position: 'relative',
             display: 'flex', flexDirection: 'column',
@@ -1323,7 +1333,7 @@ export default function NotesApp() {
             </div>
           </div>
 
-          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', padding: `0 ${s(20)}px` }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: `0 ${s(20)}px` }}>
             {EditorBody(note, colorHex, panelTint)}
           </div>
           {TagFooter(note, panelTint)}
