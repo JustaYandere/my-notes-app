@@ -30,6 +30,22 @@ import { useNotesSync } from './hooks/useNotesSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { supabase, supabaseEnabled } from './lib/supabaseClient';
 
+const PIN_LOCKOUT_KEY = 'makinote_pin_lockout_v1';
+const LOCKOUT_SCHEDULE = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
+function lockoutDurationFor(failCount) {
+  const idx = failCount - 5;
+  if (idx < 0) return 0;
+  return LOCKOUT_SCHEDULE[Math.min(idx, LOCKOUT_SCHEDULE.length - 1)];
+}
+function formatDuration(ms) {
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return 'less than a minute';
+  if (mins === 1) return '1 minute';
+  if (mins < 60) return `${mins} minutes`;
+  const hrs = Math.round(mins / 60);
+  return hrs === 1 ? '1 hour' : `${hrs} hours`;
+}
+
 export default function NotesApp() {
   const [hydrated, setHydrated] = useState(false);
   const [customColors, setCustomColors] = useState(STARTER_COLORS);
@@ -101,6 +117,8 @@ export default function NotesApp() {
   const [locked, setLocked] = useState(false);
   const [pinEntry, setPinEntry] = useState('');
   const [pinError, setPinError] = useState('');
+  const [pinFailCount, setPinFailCount] = useState(() => loadLocal(PIN_LOCKOUT_KEY)?.failCount || 0);
+  const [pinLockUntil, setPinLockUntil] = useState(() => loadLocal(PIN_LOCKOUT_KEY)?.lockUntil || 0);
   const [showPinSetup, setShowPinSetup] = useState(false);
   const [newPin, setNewPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
@@ -136,8 +154,10 @@ export default function NotesApp() {
   const tagInputRefs = useRef({});
   const longPressTimer = useRef(null);
   const longPressFired = useRef(false);
+  const lastPointerType = useRef('mouse');
   const noteHistoryPushed = useRef(false);
   const settingsHistoryPushed = useRef(false);
+  const settingsSectionHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
   const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus });
   useSettingsSync({
@@ -233,6 +253,10 @@ export default function NotesApp() {
   }, [customColors, customThemes, activeThemeId, modalTint, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
 
   useEffect(() => {
+    saveLocal(PIN_LOCKOUT_KEY, { failCount: pinFailCount, lockUntil: pinLockUntil });
+  }, [pinFailCount, pinLockUntil]);
+
+  useEffect(() => {
     if (!hydrated) return;
     function checkReminders() {
       const now = Date.now();
@@ -275,7 +299,10 @@ export default function NotesApp() {
   useEffect(() => {
     function onPopState() {
       suppressBackNav.current = true;
-      if (settingsOpen) closeSettings();
+      if (settingsOpen && settingsSection) {
+        settingsSectionHistoryPushed.current = false;
+        setSettingsSection(null);
+      } else if (settingsOpen) closeSettings();
       else if (editingId) {
         const didChange = noteChangedSincePreEdit();
         finalizeClose(false);
@@ -307,6 +334,15 @@ export default function NotesApp() {
       settingsHistoryPushed.current = false;
     }
   }, [settingsOpen]);
+
+  useEffect(() => {
+    if (settingsSection && !settingsSectionHistoryPushed.current) {
+      window.history.pushState({ layer: 'settingsSection' }, '');
+      settingsSectionHistoryPushed.current = true;
+    } else if (!settingsSection) {
+      settingsSectionHistoryPushed.current = false;
+    }
+  }, [settingsSection]);
 
   const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden), [notes]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
@@ -545,10 +581,17 @@ export default function NotesApp() {
     }
   }
   function closeSettings() {
+    const steps = (settingsSectionHistoryPushed.current ? 1 : 0) + (settingsHistoryPushed.current ? 1 : 0);
     setSettingsOpen(false);
     setSettingsSection(null);
-    if (settingsHistoryPushed.current) {
-      settingsHistoryPushed.current = false;
+    settingsSectionHistoryPushed.current = false;
+    settingsHistoryPushed.current = false;
+    if (steps > 0 && !suppressBackNav.current) window.history.go(-steps);
+  }
+  function backToSettingsHub() {
+    setSettingsSection(null);
+    if (settingsSectionHistoryPushed.current) {
+      settingsSectionHistoryPushed.current = false;
       if (!suppressBackNav.current) window.history.back();
     }
   }
@@ -556,9 +599,33 @@ export default function NotesApp() {
     if (pinEnabled) { setHiddenPinCheck(true); setHiddenPinEntry(''); setHiddenPinError(''); }
     else { setHiddenOpen(true); }
   }
+  function checkPin(entry, onSuccess, setErrorFn, setEntryFn) {
+    if (pinLockUntil > Date.now()) {
+      setErrorFn(`Too many attempts. Try again in ${formatDuration(pinLockUntil - Date.now())}.`);
+      setEntryFn('');
+      return;
+    }
+    if (entry === pin) {
+      setPinFailCount(0);
+      setPinLockUntil(0);
+      setEntryFn('');
+      setErrorFn('');
+      onSuccess();
+    } else {
+      const nextFail = pinFailCount + 1;
+      setPinFailCount(nextFail);
+      setEntryFn('');
+      const duration = lockoutDurationFor(nextFail);
+      if (duration > 0) {
+        setPinLockUntil(Date.now() + duration);
+        setErrorFn(`Too many attempts. Try again in ${formatDuration(duration)}.`);
+      } else {
+        setErrorFn('Wrong PIN');
+      }
+    }
+  }
   function confirmHiddenPin() {
-    if (hiddenPinEntry === pin) { setHiddenPinCheck(false); setHiddenPinEntry(''); setHiddenOpen(true); }
-    else { setHiddenPinError('Wrong PIN'); setHiddenPinEntry(''); }
+    checkPin(hiddenPinEntry, () => { setHiddenPinCheck(false); setHiddenOpen(true); }, setHiddenPinError, setHiddenPinEntry);
   }
   function toggleChecklistItem(note, itemId) {
     pushHistory();
@@ -658,7 +725,8 @@ export default function NotesApp() {
     setSelectedNoteIds([]);
     setBulkColorPickerOpen(false);
   }
-  function handlePressStart(note) {
+  function handlePressStart(note, e) {
+    lastPointerType.current = e?.pointerType || 'mouse';
     longPressFired.current = false;
     longPressTimer.current = setTimeout(() => {
       longPressFired.current = true;
@@ -667,6 +735,11 @@ export default function NotesApp() {
   }
   function handlePressEnd() {
     if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+  }
+  function handleContextMenu(e, note) {
+    e.preventDefault();
+    if (lastPointerType.current === 'touch') return;
+    toggleSelectNote(note.id);
   }
   function handleCardClick(note) {
     if (longPressFired.current) { longPressFired.current = false; return; }
@@ -835,8 +908,7 @@ export default function NotesApp() {
   }
   function removePin() { setPinEnabled(false); setPin(''); setShowPinSetup(false); }
   function tryUnlock() {
-    if (pinEntry === pin) { setLocked(false); setPinEntry(''); setPinError(''); }
-    else { setPinError('Wrong PIN'); setPinEntry(''); }
+    checkPin(pinEntry, () => setLocked(false), setPinError, setPinEntry);
   }
 
   const { bg, text, elevated, muted, border: borderColor, isDark: dark } = theme;
@@ -1284,10 +1356,10 @@ export default function NotesApp() {
                     boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)', cursor: 'pointer', position: 'relative', color: noteText,
                   }}
                   onClick={() => handleCardClick(note)}
-                  onPointerDown={() => handlePressStart(note)}
+                  onPointerDown={(e) => handlePressStart(note, e)}
                   onPointerUp={handlePressEnd}
                   onPointerLeave={handlePressEnd}
-                  onContextMenu={(e) => { e.preventDefault(); toggleSelectNote(note.id); }}
+                  onContextMenu={(e) => handleContextMenu(e, note)}
                 >
                   <div style={{ width: 5, flexShrink: 0, background: colorHex }} />
                   {selectedNoteIds.length > 0 && (
@@ -1352,10 +1424,10 @@ export default function NotesApp() {
                   className="note-row"
                   style={{ display: 'flex', alignItems: 'center', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText, outline: selectedNoteIds.includes(note.id) ? '2px solid #E8735F' : 'none', outlineOffset: -2 }}
                   onClick={() => handleCardClick(note)}
-                  onPointerDown={() => handlePressStart(note)}
+                  onPointerDown={(e) => handlePressStart(note, e)}
                   onPointerUp={handlePressEnd}
                   onPointerLeave={handlePressEnd}
-                  onContextMenu={(e) => { e.preventDefault(); toggleSelectNote(note.id); }}
+                  onContextMenu={(e) => handleContextMenu(e, note)}
                 >
                   <div style={{ width: 4, alignSelf: 'stretch', flexShrink: 0, background: colorHex }} />
                   {selectedNoteIds.length > 0 && (
@@ -1505,7 +1577,7 @@ export default function NotesApp() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {settingsSection && (
-                  <button onClick={() => setSettingsSection(null)} aria-label="Back to settings" title="Back to settings" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 0 }}>
+                  <button onClick={backToSettingsHub} aria-label="Back to settings" title="Back to settings" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 0 }}>
                     <ArrowLeft size={18} />
                   </button>
                 )}
