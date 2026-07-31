@@ -7,10 +7,11 @@ const RECOVERY_MODES = ['forgotChoice', 'forgotEmail', 'forgotPassword'];
 function errMsg(err) {
   if (!err) return 'Something went wrong.';
   if (typeof err === 'string') return err;
-  return err.message || err.error_description || err.msg || 'Something went wrong.';
+  const msg = err.message || err.error_description || err.msg;
+  return msg && msg !== '{}' ? msg : 'Something went wrong — please try again.';
 }
 
-export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled, onFocusModeChange }) {
+export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg, borderStyle, passwordRecovery, onRecoveryHandled, onFocusModeChange, onMfaStatusChange }) {
   const [user, setUser] = useState(null);
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
@@ -40,7 +41,9 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
   async function refreshMfaFactors() {
     if (!supabaseEnabled) return;
     const { data } = await supabase.auth.mfa.listFactors();
-    setMfaFactor(data?.totp?.find((f) => f.status === 'verified') || null);
+    const factor = data?.totp?.find((f) => f.status === 'verified') || null;
+    setMfaFactor(factor);
+    onMfaStatusChange?.(!!factor);
   }
 
   useEffect(() => {
@@ -50,6 +53,7 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
         setUser(null);
         setMfaPending(false);
         setMfaFactor(null);
+        onMfaStatusChange?.(false);
         onUserChange?.(null);
         return;
       }
@@ -117,9 +121,13 @@ export default function AccountPanel({ onUserChange, syncStatus, text, muted, bg
     setKeepSignedIn(keepSignedInChecked);
     try {
       if (mode === 'signup') {
-        const { error: err } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
+        const { data, error: err } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
         if (err) throw err;
-        setInfo('Check your email to confirm your account, then log in.');
+        if (data?.user && data.user.identities?.length === 0) {
+          setError('This email already has an account — try logging in instead.');
+        } else {
+          setInfo('Check your email to confirm your account, then log in.');
+        }
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });
         if (err) throw err;

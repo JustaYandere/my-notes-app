@@ -92,6 +92,10 @@ export default function NotesApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState(null);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const [has2FA, setHas2FA] = useState(false);
+  const [pinMfaMode, setPinMfaMode] = useState(false);
+  const [pinMfaCode, setPinMfaCode] = useState('');
+  const [pinMfaError, setPinMfaError] = useState('');
   const [accountRecoveryFocus, setAccountRecoveryFocus] = useState(false);
   const [trashOpen, setTrashOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
@@ -290,15 +294,26 @@ export default function NotesApp() {
 
   useEffect(() => {
     if (!supabaseEnabled) return;
+    async function checkMfaStatus() {
+      const { data } = await supabase.auth.mfa.listFactors();
+      setHas2FA(!!data?.totp?.some((f) => f.status === 'verified'));
+    }
+    checkMfaStatus();
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true);
         setSettingsSection('account');
         setSettingsOpen(true);
       }
+      if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'MFA_CHALLENGE_VERIFIED') checkMfaStatus();
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = editingId && !fullScreenEditor ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [editingId, fullScreenEditor]);
 
   useEffect(() => {
     function onPopState() {
@@ -947,14 +962,27 @@ export default function NotesApp() {
     setPin(newPin); setPinEnabled(true); setShowPinSetup(false); setNewPin(''); setConfirmPin('');
   }
   function removePin() { setPinEnabled(false); setPin(''); setShowPinSetup(false); }
-  async function forgotPinSignOut() {
-    if (!window.confirm("This removes your PIN and signs you out of your account. Your notes stay on this device. Continue?")) return;
-    removePin();
-    setPinFailCount(0);
-    setPinLockUntil(0);
-    setLocked(false);
-    setPinError('');
-    if (supabaseEnabled && syncUser) await supabase.auth.signOut();
+  async function verifyPinWithMfa(e) {
+    e.preventDefault();
+    setPinMfaError('');
+    try {
+      const { data: factors, error: listErr } = await supabase.auth.mfa.listFactors();
+      if (listErr) throw listErr;
+      const totp = factors?.totp?.find((f) => f.status === 'verified');
+      if (!totp) throw new Error('No authenticator app found on this account.');
+      const { data: challenge, error: chErr } = await supabase.auth.mfa.challenge({ factorId: totp.id });
+      if (chErr) throw chErr;
+      const { error: vErr } = await supabase.auth.mfa.verify({ factorId: totp.id, challengeId: challenge.id, code: pinMfaCode });
+      if (vErr) throw vErr;
+      setLocked(false);
+      setPinFailCount(0);
+      setPinLockUntil(0);
+      setPinError('');
+      setPinMfaMode(false);
+      setPinMfaCode('');
+    } catch (err) {
+      setPinMfaError(err?.message || 'Invalid code.');
+    }
   }
   function tryUnlock() {
     checkPin(pinEntry, () => setLocked(false), setPinError, setPinEntry);
@@ -1312,10 +1340,23 @@ export default function NotesApp() {
         <div style={{ textAlign: 'center', width: 260 }}>
           <Lock size={28} style={{ marginBottom: 12, opacity: 0.7 }} />
           <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 24, margin: '0 0 16px' }}>Notes locked</h2>
-          <input type="password" inputMode="numeric" value={pinEntry} onChange={(e) => setPinEntry(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => e.key === 'Enter' && tryUnlock()} placeholder="Enter PIN" autoFocus style={{ width: '100%', boxSizing: 'border-box', textAlign: 'center', fontSize: 20, letterSpacing: 4, padding: '10px 12px', borderRadius: 10, border: borderStyle, background: elevated, color: text, outline: 'none', marginBottom: 10 }} />
-          {pinError && <div style={{ color: '#E8735F', fontSize: 13, marginBottom: 10 }}>{pinError}</div>}
-          <button onClick={tryUnlock} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: 'none', background: '#E8735F', color: '#fff', fontSize: 14, cursor: 'pointer' }}>Unlock</button>
-          <button onClick={forgotPinSignOut} style={{ marginTop: 14, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Forgot PIN? Sign out & remove PIN</button>
+          {pinMfaMode ? (
+            <form onSubmit={verifyPinWithMfa}>
+              <input type="text" inputMode="numeric" value={pinMfaCode} onChange={(e) => setPinMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="6-digit code" autoFocus style={{ width: '100%', boxSizing: 'border-box', textAlign: 'center', fontSize: 20, letterSpacing: 4, padding: '10px 12px', borderRadius: 10, border: borderStyle, background: elevated, color: text, outline: 'none', marginBottom: 10 }} />
+              {pinMfaError && <div style={{ color: '#E8735F', fontSize: 13, marginBottom: 10 }}>{pinMfaError}</div>}
+              <button type="submit" disabled={pinMfaCode.length < 6} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: 'none', background: '#E8735F', color: '#fff', fontSize: 14, cursor: 'pointer' }}>Verify</button>
+              <button type="button" onClick={() => { setPinMfaMode(false); setPinMfaCode(''); setPinMfaError(''); }} style={{ marginTop: 14, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Back to PIN</button>
+            </form>
+          ) : (
+            <>
+              <input type="password" inputMode="numeric" value={pinEntry} onChange={(e) => setPinEntry(e.target.value.replace(/\D/g, ''))} onKeyDown={(e) => e.key === 'Enter' && tryUnlock()} placeholder="Enter PIN" autoFocus style={{ width: '100%', boxSizing: 'border-box', textAlign: 'center', fontSize: 20, letterSpacing: 4, padding: '10px 12px', borderRadius: 10, border: borderStyle, background: elevated, color: text, outline: 'none', marginBottom: 10 }} />
+              {pinError && <div style={{ color: '#E8735F', fontSize: 13, marginBottom: 10 }}>{pinError}</div>}
+              <button onClick={tryUnlock} style={{ width: '100%', padding: '10px 12px', borderRadius: 10, border: 'none', background: '#E8735F', color: '#fff', fontSize: 14, cursor: 'pointer' }}>Unlock</button>
+              {has2FA && (
+                <button onClick={() => { setPinMfaMode(true); setPinError(''); }} style={{ marginTop: 14, background: 'none', border: 'none', color: muted, fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Can't remember? Use 2FA</button>
+              )}
+            </>
+          )}
         </div>
       </div>
     );
@@ -1999,7 +2040,7 @@ export default function NotesApp() {
             {settingsSection === 'account' && (
               <>
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} />
+                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} onMfaStatusChange={setHas2FA} />
                 </div>
 
                 {!accountRecoveryFocus && (
