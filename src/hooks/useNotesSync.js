@@ -21,6 +21,12 @@ function toCloudRow(note, userId) {
   };
 }
 
+function toCloudRowUpdate(note) {
+  // eslint-disable-next-line no-unused-vars
+  const { id, user_id, ...rest } = toCloudRow(note, null);
+  return rest;
+}
+
 function fromCloudRow(row, localId) {
   return {
     id: localId,
@@ -117,8 +123,11 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       let lastErrorMessage = '';
       for (const note of dirty) {
         if (!syncUserRef.current) break;
-        const row = toCloudRow(note, syncUser.id);
-        const { error } = await supabase.from('notes').upsert(row);
+        // A note shared with me by someone else: update its content only —
+        // never touch id/user_id, or I'd hijack ownership of their note.
+        const { error } = note.remoteOwnerId
+          ? await supabase.from('notes').update(toCloudRowUpdate(note)).eq('id', note.cloudId)
+          : await supabase.from('notes').upsert(toCloudRow(note, syncUser.id));
         if (error) {
           console.error('Sync push failed:', error);
           hadError = true;

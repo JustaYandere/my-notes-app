@@ -65,6 +65,7 @@ export default function NotesApp() {
   const [syncUser, setSyncUser] = useState(null);
   const [syncStatus, setSyncStatus] = useState('idle');
   const [syncError, setSyncError] = useState('');
+  const [pendingShareTarget, setPendingShareTarget] = useState(null);
   const [shareColors, setShareColors] = useState(false);
 
   const [notes, setNotes] = useState(SEED_NOTES);
@@ -169,6 +170,19 @@ export default function NotesApp() {
   const settingsSectionHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
   const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
+
+  useEffect(() => {
+    if (!pendingShareTarget || !syncUser || !supabaseEnabled) return;
+    const note = notes.find((n) => n.id === pendingShareTarget.noteId);
+    if (note?.cloudId) {
+      supabase.from('note_shares').upsert(
+        { note_id: note.cloudId, owner_id: syncUser.id, shared_with_id: pendingShareTarget.connectionId },
+        { onConflict: 'note_id,shared_with_id' },
+      );
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the one-shot pending-share marker once its note has synced
+      setPendingShareTarget(null);
+    }
+  }, [notes, pendingShareTarget, syncUser]);
   useSettingsSync({
     values: { customColors, customThemes, activeThemeId, modalTint, separatorColorId, mainBgEffect, mainBgImage, fontChoice },
     setters: { customColors: setCustomColors, customThemes: setCustomThemes, activeThemeId: setActiveThemeId, modalTint: setModalTint, separatorColorId: setSeparatorColorId, mainBgEffect: setMainBgEffect, mainBgImage: setMainBgImage, fontChoice: setFontChoice },
@@ -364,7 +378,7 @@ export default function NotesApp() {
     }
   }, [settingsSection]);
 
-  const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden), [notes]);
+  const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden && !n.remoteOwnerId), [notes]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
   const trashedNotes = useMemo(() => notes.filter((n) => n.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt), [notes]);
   const colorOrder = useMemo(() => customColors.reduce((acc, c, i) => ({ ...acc, [c.id]: i }), {}), [customColors]);
@@ -508,7 +522,7 @@ export default function NotesApp() {
     setNotes((prev) => prev.map((n) => (colorMigration.noteIds.includes(n.id) ? { ...n, color: id, updatedAt: Date.now() } : n)));
     setColorMigration(null);
   }
-  function addNote(color, mode) {
+  function addNote(color, mode, shareWithConnectionId) {
     pushHistory();
     const id = nextId.current++;
     const now = Date.now();
@@ -518,15 +532,31 @@ export default function NotesApp() {
     setEditingId(id);
     setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode });
     setNewNoteSetupOpen(false);
+    if (shareWithConnectionId) setPendingShareTarget({ noteId: id, connectionId: shareWithConnectionId });
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
   }
 
-  function copySharedNoteToMine(cloudNote) {
+  function createNoteForConnection(connectionId) {
+    setConnectedNotesOpen(false);
+    addNote(undefined, 'note', connectionId);
+  }
+
+  // Opens a note shared between me and a connection so either side can edit it.
+  // If I'm the owner, it's already one of my own local notes — just open that.
+  // Otherwise, inject a local "shadow" copy tagged with remoteOwnerId so the
+  // editor works normally, but sync pushes updates (not inserts) and it's kept
+  // out of the main note list.
+  function openSharedNote(cloudNote, share) {
+    const isMine = share.owner_id === syncUser?.id;
+    if (isMine) {
+      const existing = notes.find((n) => n.cloudId === cloudNote.id);
+      setConnectedNotesOpen(false);
+      if (existing) { startEditing(existing); return; }
+    }
     pushHistory();
-    const id = nextId.current++;
-    const now = Date.now();
-    setNotes((prev) => [{
-      id,
+    const localId = cloudNote.id;
+    const injected = {
+      id: localId,
       title: cloudNote.title || '',
       body: cloudNote.body || '',
       mode: cloudNote.mode || 'note',
@@ -537,9 +567,14 @@ export default function NotesApp() {
       voiceNotes: cloudNote.voice_notes || [],
       images: cloudNote.images || [],
       color: cloudNote.color || customColors[0]?.id,
-      createdAt: now,
-      updatedAt: now,
-    }, ...prev]);
+      createdAt: cloudNote.created_at ? new Date(cloudNote.created_at).getTime() : Date.now(),
+      updatedAt: cloudNote.updated_at ? new Date(cloudNote.updated_at).getTime() : Date.now(),
+      cloudId: cloudNote.id,
+      remoteOwnerId: isMine ? null : share.owner_id,
+    };
+    setNotes((prev) => (prev.some((n) => n.id === localId) ? prev.map((n) => (n.id === localId ? injected : n)) : [injected, ...prev]));
+    setEditingId(localId);
+    setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode });
     setConnectedNotesOpen(false);
   }
 
@@ -2258,7 +2293,8 @@ export default function NotesApp() {
         <ConnectedNotesModal
           syncUser={syncUser}
           onClose={() => setConnectedNotesOpen(false)}
-          onCopy={copySharedNoteToMine}
+          onOpen={openSharedNote}
+          onCreateForConnection={createNoteForConnection}
           text={text}
           muted={muted}
           bg={bg}

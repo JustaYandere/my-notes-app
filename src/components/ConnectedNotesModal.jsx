@@ -1,38 +1,62 @@
-import { useState, useEffect } from 'react';
-import { X, Copy } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { X, Plus, Users } from 'lucide-react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 
-export default function ConnectedNotesModal({ syncUser, onClose, onCopy, text, muted, bg, elevated, borderStyle }) {
+export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreateForConnection, text, muted, bg, elevated, borderStyle }) {
   const [items, setItems] = useState([]);
+  const [connections, setConnections] = useState([]);
+  const [newNoteTarget, setNewNoteTarget] = useState('');
+
+  const load = useCallback(async () => {
+    if (!supabaseEnabled || !syncUser) return;
+    const { data: connRows } = await supabase
+      .from('connections')
+      .select('*')
+      .eq('status', 'accepted')
+      .or(`requester_id.eq.${syncUser.id},recipient_id.eq.${syncUser.id}`);
+    const otherIds = (connRows || []).map((c) => (c.requester_id === syncUser.id ? c.recipient_id : c.requester_id));
+    const { data: profileRows } = otherIds.length > 0
+      ? await supabase.from('profiles').select('id,email').in('id', otherIds)
+      : { data: [] };
+    const emailMap = {};
+    (profileRows || []).forEach((p) => { emailMap[p.id] = p.email; });
+    setConnections(otherIds.map((id) => ({ id, email: emailMap[id] })));
+
+    const { data: sharesIn } = await supabase.from('note_shares').select('*').eq('shared_with_id', syncUser.id);
+    const { data: sharesOut } = await supabase.from('note_shares').select('*').eq('owner_id', syncUser.id);
+    const allShares = [...(sharesIn || []), ...(sharesOut || [])];
+    const noteIds = [...new Set(allShares.map((s) => s.note_id))];
+    const { data: notesData } = noteIds.length > 0
+      ? await supabase.from('notes').select('*').in('id', noteIds)
+      : { data: [] };
+
+    const merged = allShares
+      .map((s) => {
+        const note = (notesData || []).find((n) => n.id === s.note_id);
+        const isMine = s.owner_id === syncUser.id;
+        const otherId = isMine ? s.shared_with_id : s.owner_id;
+        return { share: s, note, otherEmail: emailMap[otherId], isMine };
+      })
+      .filter((x) => x.note);
+    setItems(merged);
+  }, [syncUser]);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
     let cancelled = false;
-    async function load() {
-      const { data: shares } = await supabase.from('note_shares').select('*').eq('shared_with_id', syncUser.id);
-      if (cancelled) return;
-      const noteIds = (shares || []).map((s) => s.note_id);
-      if (noteIds.length === 0) { setItems([]); return; }
-      const { data: notesData } = await supabase.from('notes').select('*').in('id', noteIds);
-      if (cancelled) return;
-      const ownerIds = [...new Set((shares || []).map((s) => s.owner_id))];
-      const { data: profileRows } = await supabase.from('profiles').select('id,email').in('id', ownerIds);
-      if (cancelled) return;
-      const emailMap = {};
-      (profileRows || []).forEach((p) => { emailMap[p.id] = p.email; });
-      const merged = (shares || [])
-        .map((s) => ({ share: s, note: (notesData || []).find((n) => n.id === s.note_id), ownerEmail: emailMap[s.owner_id] }))
-        .filter((x) => x.note);
-      setItems(merged);
-    }
-    load();
+    (async () => { if (!cancelled) await load(); })();
     const channel = supabase
       .channel(`shared-with-${syncUser.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'note_shares' }, () => load())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes' }, () => load())
       .subscribe();
     return () => { cancelled = true; supabase.removeChannel(channel); };
-  }, [syncUser]);
+  }, [syncUser, load]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- defaults the picker to the first connection once loaded
+    if (!newNoteTarget && connections.length > 0) setNewNoteTarget(connections[0].id);
+  }, [connections, newNoteTarget]);
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
@@ -42,22 +66,40 @@ export default function ConnectedNotesModal({ syncUser, onClose, onCopy, text, m
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
         </div>
         {!supabaseEnabled || !syncUser ? (
-          <p style={{ fontSize: 13, color: muted }}>Sign in to see notes shared with you.</p>
-        ) : items.length === 0 ? (
-          <p style={{ fontSize: 13, color: muted }}>No notes have been shared with you yet.</p>
+          <p style={{ fontSize: 13, color: muted }}>Sign in to share and co-edit notes with connected accounts.</p>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {items.map(({ share, note, ownerEmail }) => (
-              <div key={share.id} style={{ background: bg, border: borderStyle, borderRadius: 12, padding: 14 }}>
-                <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 4 }}>{note.title || 'Untitled'}</div>
-                {note.body && <div style={{ fontSize: 13, color: muted, marginBottom: 8, whiteSpace: 'pre-wrap' }}>{note.body.slice(0, 200)}</div>}
-                <div style={{ fontSize: 11, color: muted, marginBottom: 8 }}>Shared by {ownerEmail}</div>
-                <button onClick={() => onCopy(note)} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E8735F', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 10px', fontSize: 12, cursor: 'pointer' }}>
-                  <Copy size={13} /> Copy to my notes
+          <>
+            {connections.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
+                <select value={newNoteTarget} onChange={(e) => setNewNoteTarget(e.target.value)} style={{ flex: 1, background: bg, border: borderStyle, borderRadius: 8, padding: '8px 10px', fontSize: 13, color: text, outline: 'none' }}>
+                  {connections.map((c) => <option key={c.id} value={c.id}>{c.email}</option>)}
+                </select>
+                <button onClick={() => onCreateForConnection(newNoteTarget)} disabled={!newNoteTarget} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E8735F', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  <Plus size={14} /> New note
                 </button>
               </div>
-            ))}
-          </div>
+            )}
+
+            {items.length === 0 ? (
+              <p style={{ fontSize: 13, color: muted }}>No connected notes yet — share one from a note's menu, or create one above.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {items.map(({ share, note, otherEmail }) => (
+                  <button
+                    key={share.id}
+                    onClick={() => onOpen(note, share)}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', background: bg, border: borderStyle, borderRadius: 12, padding: 14, cursor: 'pointer', color: text }}
+                  >
+                    <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 4 }}>{note.title || 'Untitled'}</div>
+                    {note.body && <div style={{ fontSize: 13, color: muted, marginBottom: 8, whiteSpace: 'pre-wrap' }}>{note.body.slice(0, 200)}</div>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: muted }}>
+                      <Users size={11} /> Shared with {otherEmail}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
