@@ -126,6 +126,22 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
         });
       });
+      // Also sweep out any empty notes pulled down from the cloud (e.g. left
+      // over from before auto-delete-on-close existed, or from another device).
+      mergedResult
+        .filter((n) => !n.deletedAt && !n.remoteOwnerId && idsToRemove.indexOf(n.id) === -1)
+        .forEach((n) => {
+          const isEmpty = !(n.title || '').trim() && !(n.body || '').trim()
+            && (!n.checklist || n.checklist.length === 0)
+            && (!n.voiceNotes || n.voiceNotes.length === 0)
+            && (!n.images || n.images.length === 0)
+            && (!n.tags || n.tags.length === 0);
+          if (isEmpty) {
+            idsToRemove.push(n.id);
+            if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
+          }
+        });
+
       if (idsToRemove.length > 0) {
         setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
         cloudIdsToDelete.forEach((cid) => { supabase.from('notes').delete().eq('id', cid); });

@@ -103,6 +103,7 @@ export default function NotesApp() {
   const [trashOpen, setTrashOpen] = useState(false);
   const [hiddenOpen, setHiddenOpen] = useState(false);
   const [similarOpen, setSimilarOpen] = useState(false);
+  const [similarFocusId, setSimilarFocusId] = useState(null);
   const [connectedNotesOpen, setConnectedNotesOpen] = useState(false);
   const [newNoteSetupOpen, setNewNoteSetupOpen] = useState(false);
   const [pendingNoteColor, setPendingNoteColor] = useState(null);
@@ -168,6 +169,7 @@ export default function NotesApp() {
   const lastPointerType = useRef('mouse');
   const noteHistoryPushed = useRef(false);
   const settingsHistoryPushed = useRef(false);
+  const connectedNotesHistoryPushed = useRef(false);
   const settingsSectionHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
   const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
@@ -222,6 +224,17 @@ export default function NotesApp() {
     }
     if (Array.isArray(savedNotes) && savedNotes.length) {
       let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], images: [], ...n }));
+      // Sweep out empty notes left behind by earlier sessions (nothing typed,
+      // no checklist/voice/images/tags), aside from ones already in Trash.
+      initialNotes = initialNotes.filter((n) => {
+        if (n.deletedAt || n.remoteOwnerId) return true;
+        const isEmpty = !(n.title || '').trim() && !(n.body || '').trim()
+          && (!n.checklist || n.checklist.length === 0)
+          && (!n.voiceNotes || n.voiceNotes.length === 0)
+          && (!n.images || n.images.length === 0)
+          && (!n.tags || n.tags.length === 0);
+        return !isEmpty;
+      });
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
       setNotes(initialNotes);
       nextId.current = Math.max(4, ...initialNotes.map((n) => (n.id || 0) + 1));
@@ -363,6 +376,9 @@ export default function NotesApp() {
           setBackSaveToast(true);
           setTimeout(() => setBackSaveToast(false), 1500);
         }
+      } else if (connectedNotesOpen) {
+        connectedNotesHistoryPushed.current = false;
+        setConnectedNotesOpen(false);
       }
       requestAnimationFrame(() => { suppressBackNav.current = false; });
     }
@@ -396,6 +412,15 @@ export default function NotesApp() {
       settingsSectionHistoryPushed.current = false;
     }
   }, [settingsSection]);
+
+  useEffect(() => {
+    if (connectedNotesOpen && !connectedNotesHistoryPushed.current) {
+      window.history.pushState({ layer: 'connectedNotes' }, '');
+      connectedNotesHistoryPushed.current = true;
+    } else if (!connectedNotesOpen) {
+      connectedNotesHistoryPushed.current = false;
+    }
+  }, [connectedNotesOpen]);
 
   const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden && !n.remoteOwnerId), [notes]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
@@ -556,7 +581,6 @@ export default function NotesApp() {
   }
 
   function createNoteForConnection(connectionId) {
-    setConnectedNotesOpen(false);
     addNote(undefined, 'note', connectionId);
   }
 
@@ -569,7 +593,6 @@ export default function NotesApp() {
     const isMine = share.owner_id === syncUser?.id;
     if (isMine) {
       const existing = notes.find((n) => n.cloudId === cloudNote.id);
-      setConnectedNotesOpen(false);
       if (existing) { startEditing(existing); return; }
     }
     pushHistory();
@@ -594,7 +617,6 @@ export default function NotesApp() {
     setNotes((prev) => (prev.some((n) => n.id === localId) ? prev.map((n) => (n.id === localId ? injected : n)) : [injected, ...prev]));
     setEditingId(localId);
     setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode });
-    setConnectedNotesOpen(false);
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
@@ -653,6 +675,13 @@ export default function NotesApp() {
     setPreEditSnapshot(null);
     if (noteHistoryPushed.current) {
       noteHistoryPushed.current = false;
+      if (!suppressBackNav.current) window.history.back();
+    }
+  }
+  function closeConnectedNotes() {
+    setConnectedNotesOpen(false);
+    if (connectedNotesHistoryPushed.current) {
+      connectedNotesHistoryPushed.current = false;
       if (!suppressBackNav.current) window.history.back();
     }
   }
@@ -1120,7 +1149,7 @@ export default function NotesApp() {
           <button onClick={() => exportNoteAsText(note)} style={rowStyle}><FileText size={15} /> Export as text (.txt)</button>
           <button onClick={() => exportNoteAsMarkdown(note)} style={rowStyle}><FileText size={15} /> Export as Markdown (.md)</button>
 
-          <button onClick={() => { setSimilarOpen(true); setNoteMenuOpen(false); }} style={rowStyle}><GitCompare size={15} /> Similar notes</button>
+          <button onClick={() => { setSimilarFocusId(note.id); setSimilarOpen(true); setNoteMenuOpen(false); }} style={rowStyle}><GitCompare size={15} /> Similar notes</button>
 
           <button onClick={() => setMenuShareInfo((v) => !v)} style={rowStyle}><Share2 size={15} /> Share</button>
           {menuShareInfo && <ShareNotePicker note={note} syncUser={syncUser} text={text} muted={muted} />}
@@ -1524,8 +1553,9 @@ export default function NotesApp() {
                   className="note-card"
                   style={{
                     breakInside: 'avoid', marginBottom: 16, borderRadius: 14, overflow: 'hidden', display: 'flex',
-                    background: elevated, border: selectedNoteIds.includes(note.id) ? '2px solid #E8735F' : borderStyle,
+                    background: elevated, border: borderStyle,
                     boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)', cursor: 'pointer', position: 'relative', color: noteText,
+                    userSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitUserSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitTouchCallout: 'none',
                   }}
                   onClick={() => handleCardClick(note)}
                   onPointerDown={(e) => handlePressStart(note, e)}
@@ -1533,9 +1563,12 @@ export default function NotesApp() {
                   onPointerLeave={handlePressEnd}
                   onContextMenu={(e) => handleContextMenu(e, note)}
                 >
+                  {selectedNoteIds.includes(note.id) && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(128,128,128,0.35)', zIndex: 1, pointerEvents: 'none' }} />
+                  )}
                   <div style={{ width: 5, flexShrink: 0, background: colorHex }} />
                   {selectedNoteIds.length > 0 && (
-                    <div style={{ position: 'absolute', top: 10, left: 10, width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${selectedNoteIds.includes(note.id) ? '#E8735F' : noteText}80`, background: selectedNoteIds.includes(note.id) ? '#E8735F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1 }}>
+                    <div style={{ position: 'absolute', top: 10, left: 10, width: 20, height: 20, borderRadius: '50%', border: `1.5px solid ${selectedNoteIds.includes(note.id) ? '#E8735F' : noteText}80`, background: selectedNoteIds.includes(note.id) ? '#E8735F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
                       {selectedNoteIds.includes(note.id) && <Check size={13} color="#fff" />}
                     </div>
                   )}
@@ -1589,16 +1622,22 @@ export default function NotesApp() {
                 <div
                   key={note.id}
                   className="note-row"
-                  style={{ display: 'flex', alignItems: 'center', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText, outline: selectedNoteIds.includes(note.id) ? '2px solid #E8735F' : 'none', outlineOffset: -2 }}
+                  style={{
+                    display: 'flex', alignItems: 'center', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText, position: 'relative',
+                    userSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitUserSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitTouchCallout: 'none',
+                  }}
                   onClick={() => handleCardClick(note)}
                   onPointerDown={(e) => handlePressStart(note, e)}
                   onPointerUp={handlePressEnd}
                   onPointerLeave={handlePressEnd}
                   onContextMenu={(e) => handleContextMenu(e, note)}
                 >
+                  {selectedNoteIds.includes(note.id) && (
+                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(128,128,128,0.35)', zIndex: 1, pointerEvents: 'none' }} />
+                  )}
                   <div style={{ width: 4, alignSelf: 'stretch', flexShrink: 0, background: colorHex }} />
                   {selectedNoteIds.length > 0 && (
-                    <div style={{ width: 20, height: 20, marginLeft: 10, flexShrink: 0, borderRadius: '50%', border: `1.5px solid ${selectedNoteIds.includes(note.id) ? '#E8735F' : noteText}80`, background: selectedNoteIds.includes(note.id) ? '#E8735F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 20, height: 20, marginLeft: 10, flexShrink: 0, borderRadius: '50%', border: `1.5px solid ${selectedNoteIds.includes(note.id) ? '#E8735F' : noteText}80`, background: selectedNoteIds.includes(note.id) ? '#E8735F' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 2 }}>
                       {selectedNoteIds.includes(note.id) && <Check size={13} color="#fff" />}
                     </div>
                   )}
@@ -1675,6 +1714,9 @@ export default function NotesApp() {
               </>
             )}
           </div>
+          {selectedNoteIds.length === 1 && (
+            <button onClick={() => { setSimilarFocusId(selectedNoteIds[0]); setSimilarOpen(true); clearSelection(); }} aria-label="Find similar notes" title="Find similar notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><GitCompare size={20} /></button>
+          )}
           <button onClick={bulkExport} aria-label="Export notes" title="Export notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Download size={20} /></button>
           {syncUser && (
             <div style={{ position: 'relative' }}>
@@ -2270,21 +2312,21 @@ export default function NotesApp() {
       )}
 
       {similarOpen && (
-        <div onClick={() => setSimilarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
+        <div onClick={() => { setSimilarOpen(false); setSimilarFocusId(null); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Similar notes</h2>
-              <button onClick={() => setSimilarOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={() => { setSimilarOpen(false); setSimilarFocusId(null); }} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
-            {similarPairs.length === 0 ? (
+            {(similarFocusId ? similarPairs.filter((p) => p.a.id === similarFocusId || p.b.id === similarFocusId) : similarPairs).length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>No likely duplicates found at the current {Math.round(similarThreshold * 100)}% sensitivity.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {similarPairs.map((pair, i) => (
+                {(similarFocusId ? similarPairs.filter((p) => p.a.id === similarFocusId || p.b.id === similarFocusId) : similarPairs).map((pair, i) => (
                   <div key={i} style={{ border: borderStyle, borderRadius: 10, padding: 12 }}>
                     <div style={{ fontSize: 12, color: muted, marginBottom: 6 }}>{Math.round(pair.score * 100)}% similar</div>
                     {[pair.a, pair.b].map((n) => (
-                      <button key={n.id} onClick={() => { startEditing(n); setSimilarOpen(false); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '4px 0', fontSize: 14 }}>
+                      <button key={n.id} onClick={() => { startEditing(n); setSimilarOpen(false); setSimilarFocusId(null); }} style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '4px 0', fontSize: 14 }}>
                         <strong>{n.title || 'Untitled'}</strong>
                         <div style={{ fontSize: 12, color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{previewText(n.body)}</div>
                       </button>
@@ -2300,7 +2342,7 @@ export default function NotesApp() {
       {connectedNotesOpen && (
         <ConnectedNotesModal
           syncUser={syncUser}
-          onClose={() => setConnectedNotesOpen(false)}
+          onClose={closeConnectedNotes}
           onOpen={openSharedNote}
           onCreateForConnection={createNoteForConnection}
           text={text}
