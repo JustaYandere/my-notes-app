@@ -64,7 +64,7 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
       <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
           <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Connected notes</h2>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
         </div>
         {!supabaseEnabled || !syncUser ? (
           <p style={{ fontSize: 13, color: muted }}>Sign in to share and co-edit notes with connected accounts.</p>

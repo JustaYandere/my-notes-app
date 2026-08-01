@@ -31,6 +31,8 @@ import { useNotesSync } from './hooks/useNotesSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
 import { supabase, supabaseEnabled } from './lib/supabaseClient';
 
+const VOICE_TAG = '__voice__';
+const IMAGE_TAG = '__image__';
 const PIN_LOCKOUT_KEY = 'makinote_pin_lockout_v1';
 const LOCKOUT_SCHEDULE = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
 function lockoutDurationFor(failCount) {
@@ -445,10 +447,18 @@ export default function NotesApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId, editingNote?.title, editingNote?.body]);
 
+  function effectiveTags(n) {
+    const tags = n.tags || [];
+    return n.voiceNotes?.length > 0 || n.images?.length > 0
+      ? [...tags, ...(n.voiceNotes?.length > 0 ? [VOICE_TAG] : []), ...(n.images?.length > 0 ? [IMAGE_TAG] : [])]
+      : tags;
+  }
+
   const allTags = useMemo(() => {
     const set = new Set();
-    liveNotes.forEach((n) => (n.tags || []).forEach((t) => set.add(t)));
-    return [...set].sort();
+    liveNotes.forEach((n) => effectiveTags(n).forEach((t) => set.add(t)));
+    const real = [...set].filter((t) => t !== VOICE_TAG && t !== IMAGE_TAG).sort();
+    return [...(set.has(VOICE_TAG) ? [VOICE_TAG] : []), ...(set.has(IMAGE_TAG) ? [IMAGE_TAG] : []), ...real];
   }, [liveNotes]);
 
   const filtered = useMemo(() => {
@@ -457,8 +467,8 @@ export default function NotesApp() {
     if (selectedTagFilters.length > 0) {
       base = base.filter((n) => (
         tagFilterMode === 'all'
-          ? selectedTagFilters.every((t) => (n.tags || []).includes(t))
-          : (n.tags || []).some((t) => selectedTagFilters.includes(t))
+          ? selectedTagFilters.every((t) => effectiveTags(n).includes(t))
+          : effectiveTags(n).some((t) => selectedTagFilters.includes(t))
       ));
     }
     const compare = (a, b) => {
@@ -1668,6 +1678,11 @@ export default function NotesApp() {
                                 <Mic size={10} /> voice note
                               </span>
                             )}
+                            {note.images?.length > 0 && (
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                                <ImageIcon size={10} /> img
+                              </span>
+                            )}
                           </div>
                         )}
                         <span style={{ fontSize: fz(12), color: `${noteText}99`, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDate(note.updatedAt)}</span>
@@ -1774,16 +1789,18 @@ export default function NotesApp() {
           )}
           {allTags.map((tag) => {
             const active = selectedTagFilters.includes(tag);
+            const isVoice = tag === VOICE_TAG;
+            const isImage = tag === IMAGE_TAG;
             return (
               <button
                 key={tag}
                 onClick={() => setSelectedTagFilters((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))}
                 style={{
-                  flexShrink: 0, background: active ? '#E8735F' : bg, color: active ? '#fff' : text, border: active ? 'none' : borderStyle,
+                  display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, background: active ? '#E8735F' : bg, color: active ? '#fff' : text, border: active ? 'none' : borderStyle,
                   borderRadius: 999, padding: '6px 12px', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap',
                 }}
               >
-                # {tag}
+                {isVoice ? (<><Mic size={12} /> voice note</>) : isImage ? (<><ImageIcon size={12} /> img</>) : `# ${tag}`}
               </button>
             );
           })}
@@ -1810,7 +1827,7 @@ export default function NotesApp() {
                   {settingsSection === 'colors' ? 'Colors' : settingsSection === 'quickNoteColor' ? 'New color' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
                 </h2>
               </div>
-              <button onClick={closeSettings} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={closeSettings} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
 
             {!settingsSection && (
@@ -2250,7 +2267,7 @@ export default function NotesApp() {
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Trash</h2>
-              <button onClick={() => setTrashOpen(false)} aria-label="Close trash" title="Close trash" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={() => setTrashOpen(false)} aria-label="Close trash" title="Close trash" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
             {trashedNotes.length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>Trash is empty.</p>
@@ -2302,7 +2319,7 @@ export default function NotesApp() {
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Hidden notes</h2>
-              <button onClick={() => setHiddenOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={() => setHiddenOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
             {hiddenNotes.length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>No hidden notes.</p>
@@ -2329,7 +2346,7 @@ export default function NotesApp() {
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 460, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Similar notes</h2>
-              <button onClick={() => { setSimilarOpen(false); setSimilarFocusId(null); }} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={() => { setSimilarOpen(false); setSimilarFocusId(null); }} aria-label="Close" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, color: muted, display: 'block', marginBottom: 6 }}>Sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>

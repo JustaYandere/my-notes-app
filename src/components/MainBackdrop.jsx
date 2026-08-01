@@ -15,9 +15,29 @@ function useViewportWidth() {
   return width;
 }
 
+// Particle counts below are tuned for one screenful. Without this, a long
+// note list stretches the same fixed number of drops/stars over a much
+// taller page, so the bottom of the list ends up looking empty.
+function usePageHeightRatio() {
+  const [ratio, setRatio] = useState(1);
+  useEffect(() => {
+    function measure() {
+      const docHeight = document.documentElement.scrollHeight;
+      setRatio(Math.max(1, docHeight / window.innerHeight));
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    window.addEventListener('resize', measure);
+    return () => { observer.disconnect(); window.removeEventListener('resize', measure); };
+  }, []);
+  return ratio;
+}
+
 export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' }) {
   const width = useViewportWidth();
-  const densityScale = width < 480 ? 0.3 : width < 900 ? 0.55 : 1;
+  const heightRatio = usePageHeightRatio();
+  const densityScale = (width < 480 ? 0.3 : width < 900 ? 0.55 : 1) * heightRatio;
   const particleRgb = [
     parseInt(particleColor.slice(1, 3), 16),
     parseInt(particleColor.slice(3, 5), 16),
@@ -32,6 +52,7 @@ export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' 
   }));
   const drops = useRandom(effect === 'rain' ? Math.round(220 * densityScale) : 0, () => ({
     left: Math.random() * 100,
+    top: Math.random() * 100,
     delay: Math.random() * 3,
     duration: 0.6 + Math.random() * 0.7,
     length: 40 + Math.random() * 50,
@@ -70,7 +91,7 @@ export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' 
           <div
             key={i}
             style={{
-              position: 'absolute', left: `${d.left}%`, top: 0, width: 1, height: d.length,
+              position: 'absolute', left: `${d.left}%`, top: `${d.top}%`, width: 1, height: d.length,
               background: `linear-gradient(to bottom, transparent, rgba(${particleRgb},${d.opacity}))`,
               animation: `bg-rain ${d.duration}s linear -${d.delay}s infinite`,
             }}
