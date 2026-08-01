@@ -592,7 +592,6 @@ export default function NotesApp() {
     setColorMigration(null);
   }
   function addNote(color, mode, shareWithConnectionId) {
-    pushHistory();
     const id = nextId.current++;
     const now = Date.now();
     const resolvedColor = color || customColors[0]?.id;
@@ -1344,7 +1343,7 @@ export default function NotesApp() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <button onClick={() => finalizeClose(false)} style={{ background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Save & close</button>
             <button onClick={() => finalizeClose(true)} style={{ background: 'none', color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Discard changes</button>
-            <button onClick={() => setPendingClose(false)} style={{ background: 'none', color: muted, border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+            <button onClick={() => setPendingClose(false)} style={{ background: 'none', color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
           </div>
         </div>
       </div>

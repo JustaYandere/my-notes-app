@@ -54,6 +54,14 @@ function fromCloudRow(row, localId) {
 // and listens for realtime changes from other devices.
 export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError }) {
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
+  // cloud id -> when we last pushed it ourselves. Postgres sets updated_at
+  // via a server-side trigger (its own clock), which never exactly matches
+  // our local Date.now() value — so comparing timestamps can't reliably
+  // tell an echo of our own write apart from a real external change. This
+  // just ignores realtime events for a note we personally wrote a moment
+  // ago, which was letting a stale/out-of-order echo clobber a just-saved
+  // edit (most visibly losing images) as it bounced back down to us.
+  const recentlyPushedRef = useRef({});
   const pushTimerRef = useRef(null);
   const syncUserRef = useRef(syncUser);
   useEffect(() => { syncUserRef.current = syncUser; }, [syncUser]);
@@ -188,7 +196,8 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           hadError = true;
           lastErrorMessage = error.message || 'Could not save your notes to the cloud.';
         } else {
-          mine.forEach((n) => { syncedRef.current[n.id] = n.updatedAt; });
+          const pushedAt = Date.now();
+          mine.forEach((n) => { syncedRef.current[n.id] = n.updatedAt; recentlyPushedRef.current[n.cloudId] = pushedAt; });
         }
       }
 
@@ -205,6 +214,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           continue;
         }
         syncedRef.current[note.id] = note.updatedAt;
+        recentlyPushedRef.current[note.cloudId] = Date.now();
       }
 
       if (syncUserRef.current) {
@@ -222,11 +232,11 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${syncUser.id}` }, (payload) => {
         if (payload.eventType === 'DELETE' || !payload.new) return;
         const row = payload.new;
+        const pushedAt = recentlyPushedRef.current[row.id];
+        if (pushedAt && Date.now() - pushedAt < 5000) return;
         setNotes((prev) => {
           const existing = prev.find((n) => n.cloudId === row.id);
-          const rowUpdatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
           if (existing) {
-            if (syncedRef.current[existing.id] === rowUpdatedAt) return prev;
             const updated = fromCloudRow(row, existing.id);
             syncedRef.current[existing.id] = updated.updatedAt;
             return prev.map((n) => (n.id === existing.id ? updated : n));
