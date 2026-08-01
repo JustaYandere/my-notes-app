@@ -169,6 +169,9 @@ export default function NotesApp() {
   const tagInputRefs = useRef({});
   const longPressTimer = useRef(null);
   const editHistoryPushed = useRef(false);
+  const editHistoryTimer = useRef(null);
+  const voiceNotesRef = useRef(null);
+  const noteImagesRef = useRef(null);
   const longPressFired = useRef(false);
   const lastPointerType = useRef('mouse');
   const noteHistoryPushed = useRef(false);
@@ -516,6 +519,13 @@ export default function NotesApp() {
       pushHistory();
       editHistoryPushed.current = true;
     }
+    // A pause in typing "closes" this undo step, so the next change (e.g.
+    // typing again, or deleting something) starts a fresh one — otherwise
+    // undoing after several unrelated edits in one sitting would jump all
+    // the way back to when the note was first opened instead of reverting
+    // just the last thing you did, like an accidental delete.
+    if (editHistoryTimer.current) clearTimeout(editHistoryTimer.current);
+    editHistoryTimer.current = setTimeout(() => { editHistoryPushed.current = false; }, 1500);
   }
   function undo() {
     setPast((p) => {
@@ -1274,7 +1284,7 @@ export default function NotesApp() {
     return (
       <>
         {mode !== 'list' && (
-          <div style={mode === 'both' ? { flex: '4 1 0%', minHeight: 0, overflowY: 'auto' } : { flex: '0 0 auto' }}>
+          <div style={mode === 'both' ? { flex: '4 1 0%', minHeight: 0, overflowY: 'auto', ...ruledBg } : { flex: '1 1 auto', minHeight: 120, ...ruledBg }}>
             <textarea
               ref={(el) => { textareaRefs.current[note.id] = el; if (el && mode !== 'both') autoGrowTextarea(el); }}
               value={draftBody}
@@ -1290,7 +1300,7 @@ export default function NotesApp() {
               spellCheck={true}
               style={{
                 width: '100%', height: mode === 'both' ? '100%' : 'auto', minHeight: mode === 'both' ? '100%' : 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: mode === 'both' ? 'auto' : 'hidden',
-                fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0, ...ruledBg,
+                fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0,
               }}
             />
           </div>
@@ -1308,6 +1318,7 @@ export default function NotesApp() {
       <div style={{ flexShrink: 0, borderTop: `1px solid ${noteText}30` }}>
         <div style={{ padding: '8px 12px 0' }}>
           <VoiceNotes
+            ref={voiceNotesRef}
             clips={note.voiceNotes || []}
             onAdd={(clip) => addVoiceNote(note, clip)}
             onDelete={(clipId) => deleteVoiceNote(note, clipId)}
@@ -1318,6 +1329,7 @@ export default function NotesApp() {
             compact
           />
           <NoteImages
+            ref={noteImagesRef}
             images={note.images || []}
             onAdd={(image) => addImage(note, image)}
             onDelete={(imageId) => deleteImage(note, imageId)}
@@ -1326,8 +1338,16 @@ export default function NotesApp() {
             muted={noteMuted}
             compact
           />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <button onClick={() => voiceNotesRef.current?.toggleRecording()} aria-label="Record voice note" title="Record voice note" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+              <Mic size={15} />
+            </button>
+            <button onClick={() => noteImagesRef.current?.triggerFilePicker()} aria-label="Add image" title="Add image" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+              <ImageIcon size={15} />
+            </button>
+          </div>
         </div>
-        <div style={{ minHeight: s(50), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
+        <div style={{ maxHeight: s(66), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
           {note.tags.map((tag) => (
             <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, background: `${noteText}22`, borderRadius: 999, padding: '4px 9px', color: noteText }}>
               <button onClick={() => { setSelectedTagFilters([tag]); setEditingId(null); }} style={{ background: 'none', border: 'none', color: noteText, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, fontSize: 12 }}>

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Play, Pause, Trash2 } from 'lucide-react';
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { Square, Play, Pause, Trash2 } from 'lucide-react';
 
 function formatDuration(sec) {
   const m = Math.floor(sec / 60);
@@ -7,7 +7,7 @@ function formatDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, text, muted, compact }) {
+const VoiceNotes = forwardRef(function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, text, muted, compact }, ref) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [playingId, setPlayingId] = useState(null);
@@ -53,6 +53,11 @@ export default function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, t
     setRecording(false);
   }
 
+  useImperativeHandle(ref, () => ({
+    toggleRecording: () => (recording ? stopRecording() : startRecording()),
+    recording,
+  }), [recording, startRecording, stopRecording]);
+
   function togglePlay(clip) {
     if (playingId === clip.id) {
       audioRef.current?.pause();
@@ -68,7 +73,7 @@ export default function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, t
   }
 
   return (
-    <div style={{ marginTop: compact ? 4 : 8, flexShrink: 0 }}>
+    <div style={{ flexShrink: 0 }}>
       {clips.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
           {clips.map((clip) => (
@@ -90,22 +95,14 @@ export default function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, t
           ))}
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        {recording ? (
-          <button onClick={stopRecording} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E8735F', border: 'none', color: '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-            <Square size={12} /> Stop · {formatDuration(elapsed)}
-          </button>
-        ) : compact ? (
-          <button onClick={startRecording} aria-label="Record voice note" title="Record voice note" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${muted}`, color: muted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
-            <Mic size={15} />
-          </button>
-        ) : (
-          <button onClick={startRecording} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: `1px solid ${muted}`, color: text, borderRadius: 999, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
-            <Mic size={13} /> Record voice note
-          </button>
-        )}
-      </div>
-      {error && <p style={{ fontSize: 11, color: '#E8735F', margin: '6px 0 0' }}>{error}</p>}
+      {recording && (
+        <button onClick={stopRecording} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E8735F', border: 'none', color: '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
+          <Square size={12} /> Stop · {formatDuration(elapsed)}
+        </button>
+      )}
+      {error && <p style={{ fontSize: 11, color: '#E8735F', margin: '0 0 6px' }}>{error}</p>}
     </div>
   );
-}
+});
+
+export default VoiceNotes;
