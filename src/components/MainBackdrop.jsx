@@ -23,7 +23,9 @@ function usePageHeightRatio() {
   useEffect(() => {
     function measure() {
       const docHeight = document.documentElement.scrollHeight;
-      setRatio(Math.max(1, docHeight / window.innerHeight));
+      // Capped — an unbounded particle count on a very long note list makes
+      // scrolling janky (too many simultaneously-animated elements).
+      setRatio(Math.min(2.5, Math.max(1, docHeight / window.innerHeight)));
     }
     measure();
     const observer = new ResizeObserver(measure);
@@ -68,7 +70,7 @@ export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' 
 
   if (effect === 'stars') {
     return (
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', contain: 'strict' }}>
         <style>{`@keyframes bg-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }`}</style>
         {stars.map((s, i) => (
           <div
@@ -76,6 +78,7 @@ export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' 
             style={{
               position: 'absolute', left: `${s.x}%`, top: `${s.y}%`, width: s.r * 2, height: s.r * 2,
               borderRadius: '50%', background: particleColor, animation: `bg-twinkle ${s.duration}s ease-in-out -${s.delay}s infinite`,
+              willChange: 'opacity',
             }}
           />
         ))}
@@ -85,7 +88,7 @@ export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' 
 
   if (effect === 'rain') {
     return (
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', contain: 'strict' }}>
         <style>{`@keyframes bg-rain { 0% { transform: translateY(-10vh) rotate(12deg); } 100% { transform: translateY(110vh) rotate(12deg); } }`}</style>
         {drops.map((d, i) => (
           <div
@@ -94,6 +97,7 @@ export default function MainBackdrop({ effect, image, particleColor = '#FAFAFA' 
               position: 'absolute', left: `${d.left}%`, top: `${d.top}%`, width: 1, height: d.length,
               background: `linear-gradient(to bottom, transparent, rgba(${particleRgb},${d.opacity}))`,
               animation: `bg-rain ${d.duration}s linear -${d.delay}s infinite`,
+              willChange: 'transform',
             }}
           />
         ))}

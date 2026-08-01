@@ -381,10 +381,17 @@ export default function NotesApp() {
       } else if (settingsOpen) closeSettings();
       else if (editingId) {
         const didChange = noteChangedSincePreEdit();
-        finalizeClose(false);
-        if (didChange) {
-          setBackSaveToast(true);
-          setTimeout(() => setBackSaveToast(false), 1500);
+        if (confirmOnClose && editingNote && didChange) {
+          // Re-push the entry we just popped so app state stays consistent
+          // while we ask — if they cancel, they're still "on" this note.
+          window.history.pushState({ layer: 'note' }, '');
+          setPendingClose(true);
+        } else {
+          finalizeClose(false);
+          if (didChange) {
+            setBackSaveToast(true);
+            setTimeout(() => setBackSaveToast(false), 1500);
+          }
         }
       } else if (connectedNotesOpen) {
         connectedNotesHistoryPushed.current = false;
@@ -529,7 +536,7 @@ export default function NotesApp() {
     }
     const savedNote = updatedNotes.find((n) => n.id === editingNote.id);
     if (savedNote) {
-      setPreEditSnapshot({ id: savedNote.id, title: savedNote.title, body: savedNote.body, checklist: savedNote.checklist, color: savedNote.color, mode: savedNote.mode });
+      setPreEditSnapshot({ id: savedNote.id, title: savedNote.title, body: savedNote.body, checklist: savedNote.checklist, color: savedNote.color, mode: savedNote.mode, images: savedNote.images, voiceNotes: savedNote.voiceNotes });
     }
   }
 
@@ -592,7 +599,7 @@ export default function NotesApp() {
     const resolvedMode = mode || 'note';
     setNotes((prev) => [{ id, title: '', body: '', mode: resolvedMode, checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], images: [], color: resolvedColor, createdAt: now, updatedAt: now }, ...prev]);
     setEditingId(id);
-    setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode });
+    setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode, images: [], voiceNotes: [] });
     setNewNoteSetupOpen(false);
     if (shareWithConnectionId) setPendingShareTarget({ noteId: id, connectionId: shareWithConnectionId });
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
@@ -634,14 +641,14 @@ export default function NotesApp() {
     };
     setNotes((prev) => (prev.some((n) => n.id === localId) ? prev.map((n) => (n.id === localId ? injected : n)) : [injected, ...prev]));
     setEditingId(localId);
-    setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode });
+    setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes });
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
   function startEditing(note) {
     pushHistory();
     setEditingId(note.id);
-    setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode });
+    setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes });
     setNoteMenuOpen(false); setColorPickerOpen(false); setMenuShareInfo(false); setMenuReminderExpanded(false); setPendingClose(false); setTitleFocused(false);
   }
   function noteChangedSincePreEdit() {
@@ -651,7 +658,9 @@ export default function NotesApp() {
       draftBody !== preEditSnapshot.body ||
       editingNote.color !== preEditSnapshot.color ||
       editingNote.mode !== preEditSnapshot.mode ||
-      JSON.stringify(editingNote.checklist) !== JSON.stringify(preEditSnapshot.checklist)
+      JSON.stringify(editingNote.checklist) !== JSON.stringify(preEditSnapshot.checklist) ||
+      JSON.stringify(editingNote.images || []) !== JSON.stringify(preEditSnapshot.images || []) ||
+      JSON.stringify(editingNote.voiceNotes || []) !== JSON.stringify(preEditSnapshot.voiceNotes || [])
     );
   }
   function requestClose() {
@@ -1283,15 +1292,6 @@ export default function NotesApp() {
           text={noteText}
           muted={noteMuted}
         />
-
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 8, gap: 10, flexShrink: 0 }}>
-          <button onMouseDown={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
-            <Undo2 size={17} />
-          </button>
-          <button onMouseDown={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
-            <Redo2 size={17} />
-          </button>
-        </div>
       </>
     );
   }
@@ -1299,28 +1299,38 @@ export default function NotesApp() {
   function TagFooter(note, effectiveBg) {
     const noteText = contrastText(effectiveBg);
     return (
-      <div style={{ minHeight: s(50), flexShrink: 0, borderTop: `1px solid ${noteText}30`, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
-        {note.tags.map((tag) => (
-          <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, background: `${noteText}22`, borderRadius: 999, padding: '4px 9px', color: noteText }}>
-            <button onClick={() => { setSelectedTagFilters([tag]); setEditingId(null); }} style={{ background: 'none', border: 'none', color: noteText, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, fontSize: 12 }}>
-              # {tag}
-            </button>
-            <X size={11} style={{ cursor: 'pointer' }} onClick={() => removeTag(note, tag)} />
-          </span>
-        ))}
-        <input
-          ref={(el) => (tagInputRefs.current[note.id] = el)}
-          placeholder="Add keyword + Enter"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              const input = tagInputRefs.current[note.id];
-              addTag(note, input.value);
-              input.value = '';
-            }
-          }}
-          style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99` }}
-        />
+      <div style={{ flexShrink: 0, borderTop: `1px solid ${noteText}30` }}>
+        <div style={{ minHeight: s(50), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
+          {note.tags.map((tag) => (
+            <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, background: `${noteText}22`, borderRadius: 999, padding: '4px 9px', color: noteText }}>
+              <button onClick={() => { setSelectedTagFilters([tag]); setEditingId(null); }} style={{ background: 'none', border: 'none', color: noteText, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, fontSize: 12 }}>
+                # {tag}
+              </button>
+              <X size={11} style={{ cursor: 'pointer' }} onClick={() => removeTag(note, tag)} />
+            </span>
+          ))}
+          <input
+            ref={(el) => (tagInputRefs.current[note.id] = el)}
+            placeholder="Add keyword + Enter"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const input = tagInputRefs.current[note.id];
+                addTag(note, input.value);
+                input.value = '';
+              }
+            }}
+            style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99` }}
+          />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0 12px 8px' }}>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+            <Undo2 size={17} />
+          </button>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+            <Redo2 size={17} />
+          </button>
+        </div>
       </div>
     );
   }
