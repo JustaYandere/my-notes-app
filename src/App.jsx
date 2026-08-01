@@ -58,6 +58,7 @@ export default function NotesApp() {
   const [themeWheelLight, setThemeWheelLight] = useState(0.15);
   const [themeCardLighter, setThemeCardLighter] = useState(true);
   const [modalTint, setModalTint] = useState(50);
+  const [transparentCards, setTransparentCards] = useState(false);
   const [separatorColorId, setSeparatorColorId] = useState('none');
   const [titleFocused, setTitleFocused] = useState(false);
   const [mainBgEffect, setMainBgEffect] = useState('color');
@@ -271,6 +272,7 @@ export default function NotesApp() {
       if (savedSettings.activeThemeId) setActiveThemeId(savedSettings.activeThemeId);
       if (Array.isArray(savedSettings.customThemes) && savedSettings.customThemes.length) setCustomThemes(savedSettings.customThemes);
       if (typeof savedSettings.modalTint === 'number') setModalTint(savedSettings.modalTint);
+      if (typeof savedSettings.transparentCards === 'boolean') setTransparentCards(savedSettings.transparentCards);
       if (savedSettings.separatorColorId) setSeparatorColorId(savedSettings.separatorColorId);
       if (savedSettings.mainBgEffect) setMainBgEffect(savedSettings.mainBgEffect);
       if (typeof savedSettings.mainBgImage === 'string') setMainBgImage(savedSettings.mainBgImage);
@@ -304,8 +306,8 @@ export default function NotesApp() {
   }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
-    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
-  }, [customColors, customThemes, activeThemeId, modalTint, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
+    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
+  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
 
   useEffect(() => {
     saveLocal(PIN_LOCKOUT_KEY, { failCount: pinFailCount, lockUntil: pinLockUntil });
@@ -346,7 +348,13 @@ export default function NotesApp() {
       setHas2FA(!!data?.totp?.some((f) => f.status === 'verified'));
     }
     checkMfaStatus();
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    // AccountPanel only mounts (and only then learns who's signed in) once
+    // Settings -> Account has actually been opened. Check the session here
+    // too so signed-in state (and anything that depends on it, like
+    // Connected Notes) is available from the moment the app loads.
+    supabase.auth.getSession().then(({ data }) => setSyncUser(data.session?.user || null));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      setSyncUser(session?.user || null);
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true);
         setSettingsSection('account');
@@ -1553,9 +1561,9 @@ export default function NotesApp() {
                   className="note-card"
                   style={{
                     breakInside: 'avoid', marginBottom: 16, borderRadius: 14, overflow: 'hidden', display: 'flex',
-                    background: elevated, border: borderStyle,
+                    background: transparentCards ? `${elevated}40` : elevated, border: borderStyle,
                     boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)', cursor: 'pointer', position: 'relative', color: noteText,
-                    userSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitUserSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitTouchCallout: 'none',
+                    userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none',
                   }}
                   onClick={() => handleCardClick(note)}
                   onPointerDown={(e) => handlePressStart(note, e)}
@@ -1623,8 +1631,8 @@ export default function NotesApp() {
                   key={note.id}
                   className="note-row"
                   style={{
-                    display: 'flex', alignItems: 'center', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: elevated, cursor: 'pointer', color: noteText, position: 'relative',
-                    userSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitUserSelect: selectedNoteIds.length > 0 ? 'none' : undefined, WebkitTouchCallout: 'none',
+                    display: 'flex', alignItems: 'center', borderTop: idx === 0 ? 'none' : (sepHex ? `2px solid ${sepHex}` : borderStyle), background: transparentCards ? `${elevated}40` : elevated, cursor: 'pointer', color: noteText, position: 'relative',
+                    userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none',
                   }}
                   onClick={() => handleCardClick(note)}
                   onPointerDown={(e) => handlePressStart(note, e)}
@@ -2029,6 +2037,11 @@ export default function NotesApp() {
                   <input type="range" min={5} max={100} value={modalTint} onChange={(e) => setModalTint(Number(e.target.value))} style={{ width: '100%', ...rangeAccentStyle }} />
                 </div>
 
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={transparentCards} onChange={(e) => setTransparentCards(e.target.checked)} />
+                  See-through notes on the main menu (shows the rain/space background through them)
+                </label>
+
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
                   <input type="checkbox" checked={autoMoveCompleted} onChange={(e) => setAutoMoveCompleted(e.target.checked)} />
                   Auto-move crossed-out text to the bottom (checklist items always do this)
@@ -2318,6 +2331,10 @@ export default function NotesApp() {
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Similar notes</h2>
               <button onClick={() => { setSimilarOpen(false); setSimilarFocusId(null); }} aria-label="Close" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: muted, display: 'block', marginBottom: 6 }}>Sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
+              <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', ...rangeAccentStyle }} />
+            </div>
             {(similarFocusId ? similarPairs.filter((p) => p.a.id === similarFocusId || p.b.id === similarFocusId) : similarPairs).length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>No likely duplicates found at the current {Math.round(similarThreshold * 100)}% sensitivity.</p>
             ) : (
@@ -2345,6 +2362,7 @@ export default function NotesApp() {
           onClose={closeConnectedNotes}
           onOpen={openSharedNote}
           onCreateForConnection={createNoteForConnection}
+          colorHexOf={colorHexOf}
           text={text}
           muted={muted}
           bg={bg}

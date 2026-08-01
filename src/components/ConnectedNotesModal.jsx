@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { X, Plus, Users } from 'lucide-react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 
-export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreateForConnection, text, muted, bg, elevated, borderStyle }) {
+export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreateForConnection, colorHexOf, text, muted, bg, elevated, borderStyle }) {
   const [items, setItems] = useState([]);
   const [connections, setConnections] = useState([]);
   const [newNoteTarget, setNewNoteTarget] = useState('');
@@ -96,12 +96,15 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
                   <button
                     key={share.id}
                     onClick={() => onOpen(note, share)}
-                    style={{ display: 'block', width: '100%', textAlign: 'left', background: bg, border: borderStyle, borderRadius: 12, padding: 14, cursor: 'pointer', color: text }}
+                    style={{ display: 'flex', alignItems: 'stretch', width: '100%', textAlign: 'left', background: bg, border: borderStyle, borderRadius: 12, overflow: 'hidden', padding: 0, cursor: 'pointer', color: text }}
                   >
-                    <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 4 }}>{note.title || 'Untitled'}</div>
-                    {note.body && <div style={{ fontSize: 13, color: muted, marginBottom: 8, whiteSpace: 'pre-wrap' }}>{note.body.slice(0, 200)}</div>}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: muted }}>
-                      <Users size={11} /> Shared with {otherEmail}
+                    <div style={{ width: 4, flexShrink: 0, background: colorHexOf ? colorHexOf(note.color) : 'transparent' }} />
+                    <div style={{ flex: 1, minWidth: 0, padding: 14 }}>
+                      <div style={{ fontWeight: 500, fontSize: 15, marginBottom: 4 }}>{note.title || 'Untitled'}</div>
+                      {note.body && <div style={{ fontSize: 13, color: muted, marginBottom: 8, whiteSpace: 'pre-wrap' }}>{note.body.slice(0, 200)}</div>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: muted }}>
+                        <Users size={11} /> Shared with {otherEmail}
+                      </div>
                     </div>
                   </button>
                 ))}
