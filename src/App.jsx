@@ -168,6 +168,7 @@ export default function NotesApp() {
   const addItemRefs = useRef({});
   const tagInputRefs = useRef({});
   const longPressTimer = useRef(null);
+  const editHistoryPushed = useRef(false);
   const longPressFired = useRef(false);
   const lastPointerType = useRef('mouse');
   const noteHistoryPushed = useRef(false);
@@ -505,6 +506,17 @@ export default function NotesApp() {
   }, [liveNotes, similarThreshold]);
 
   function pushHistory() { setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), notes]); setFuture([]); }
+  // Typing in the title/body was never captured by pushHistory (it only
+  // covers structural actions like color/pin/checklist), so Undo appeared to
+  // do nothing after just typing. This captures the state once, right before
+  // the first keystroke of an editing session, so Undo can revert typed
+  // changes without pushing a snapshot on every single character.
+  function ensureEditHistory() {
+    if (!editHistoryPushed.current) {
+      pushHistory();
+      editHistoryPushed.current = true;
+    }
+  }
   function undo() {
     setPast((p) => {
       if (p.length === 0) return p;
@@ -599,6 +611,7 @@ export default function NotesApp() {
     setNotes((prev) => [{ id, title: '', body: '', mode: resolvedMode, checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], images: [], color: resolvedColor, createdAt: now, updatedAt: now }, ...prev]);
     setEditingId(id);
     setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode, images: [], voiceNotes: [] });
+    editHistoryPushed.current = false;
     setNewNoteSetupOpen(false);
     if (shareWithConnectionId) setPendingShareTarget({ noteId: id, connectionId: shareWithConnectionId });
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
@@ -641,6 +654,7 @@ export default function NotesApp() {
     setNotes((prev) => (prev.some((n) => n.id === localId) ? prev.map((n) => (n.id === localId ? injected : n)) : [injected, ...prev]));
     setEditingId(localId);
     setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes });
+    editHistoryPushed.current = true;
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
@@ -648,6 +662,7 @@ export default function NotesApp() {
     pushHistory();
     setEditingId(note.id);
     setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes });
+    editHistoryPushed.current = true;
     setNoteMenuOpen(false); setColorPickerOpen(false); setMenuShareInfo(false); setMenuReminderExpanded(false); setPendingClose(false); setTitleFocused(false);
   }
   function noteChangedSincePreEdit() {
@@ -800,6 +815,10 @@ export default function NotesApp() {
   function clearNoteReminder(note) { pushHistory(); updateNote(note.id, { reminderAt: null, reminderNotified: false }); }
   function addVoiceNote(note, clip) { pushHistory(); updateNote(note.id, { voiceNotes: [...(note.voiceNotes || []), clip] }); }
   function deleteVoiceNote(note, clipId) { pushHistory(); updateNote(note.id, { voiceNotes: (note.voiceNotes || []).filter((c) => c.id !== clipId) }); }
+  function renameVoiceNote(note, clipId, name) {
+    ensureEditHistory();
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, voiceNotes: (n.voiceNotes || []).map((c) => (c.id === clipId ? { ...c, name } : c)), updatedAt: Date.now() } : n)));
+  }
   function addImage(note, image) {
     pushHistory();
     setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, images: [...(n.images || []), image], updatedAt: Date.now() } : n)));
@@ -807,6 +826,10 @@ export default function NotesApp() {
   function deleteImage(note, imageId) {
     pushHistory();
     setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, images: (n.images || []).filter((img) => img.id !== imageId), updatedAt: Date.now() } : n)));
+  }
+  function renameImage(note, imageId, name) {
+    ensureEditHistory();
+    setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, images: (n.images || []).map((img) => (img.id === imageId ? { ...img, name } : img)), updatedAt: Date.now() } : n)));
   }
   function autoGrowTextarea(el) {
     el.style.height = 'auto';
@@ -1255,7 +1278,7 @@ export default function NotesApp() {
             <textarea
               ref={(el) => { textareaRefs.current[note.id] = el; if (el && mode !== 'both') autoGrowTextarea(el); }}
               value={draftBody}
-              onChange={(e) => { setDraftBody(e.target.value); if (mode !== 'both') autoGrowTextarea(e.target); }}
+              onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); if (mode !== 'both') autoGrowTextarea(e.target); }}
               onPaste={(e) => pasteImageFromClipboard(e, note)}
               onBlur={() => {
                 if (autoMoveCompleted) {
@@ -1274,31 +1297,36 @@ export default function NotesApp() {
         )}
 
         {mode !== 'note' && checklistBlock}
-
-        <VoiceNotes
-          clips={note.voiceNotes || []}
-          onAdd={(clip) => addVoiceNote(note, clip)}
-          onDelete={(clipId) => deleteVoiceNote(note, clipId)}
-          accent={colorHex}
-          text={noteText}
-          muted={noteMuted}
-        />
-
-        <NoteImages
-          images={note.images || []}
-          onAdd={(image) => addImage(note, image)}
-          onDelete={(imageId) => deleteImage(note, imageId)}
-          text={noteText}
-          muted={noteMuted}
-        />
       </>
     );
   }
 
-  function TagFooter(note, effectiveBg) {
+  function TagFooter(note, effectiveBg, colorHex) {
     const noteText = contrastText(effectiveBg);
+    const noteMuted = `${noteText}99`;
     return (
       <div style={{ flexShrink: 0, borderTop: `1px solid ${noteText}30` }}>
+        <div style={{ padding: '8px 12px 0' }}>
+          <VoiceNotes
+            clips={note.voiceNotes || []}
+            onAdd={(clip) => addVoiceNote(note, clip)}
+            onDelete={(clipId) => deleteVoiceNote(note, clipId)}
+            onRename={(clipId, name) => renameVoiceNote(note, clipId, name)}
+            accent={colorHex}
+            text={noteText}
+            muted={noteMuted}
+            compact
+          />
+          <NoteImages
+            images={note.images || []}
+            onAdd={(image) => addImage(note, image)}
+            onDelete={(imageId) => deleteImage(note, imageId)}
+            onRename={(imageId, name) => renameImage(note, imageId, name)}
+            text={noteText}
+            muted={noteMuted}
+            compact
+          />
+        </div>
         <div style={{ minHeight: s(50), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
           {note.tags.map((tag) => (
             <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, background: `${noteText}22`, borderRadius: 999, padding: '4px 9px', color: noteText }}>
@@ -1368,7 +1396,7 @@ export default function NotesApp() {
               <input
                 ref={(el) => (titleRefs.current[note.id] = el)}
                 value={draftTitle}
-                onChange={(e) => setDraftTitle(e.target.value)}
+                onChange={(e) => { ensureEditHistory(); setDraftTitle(e.target.value); }}
                 onKeyDown={(e) => titleKeyDown(e, note)}
                 onFocus={() => setTitleFocused(true)}
                 onBlur={() => setTitleFocused(false)}
@@ -1394,7 +1422,7 @@ export default function NotesApp() {
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: `${s(18)}px ${s(20)}px`, position: 'relative' }}>
             {EditorBody(note, colorHex, bg)}
           </div>
-          {TagFooter(note, bg)}
+          {TagFooter(note, bg, colorHex)}
           {PendingCloseOverlay(false)}
         </div>
       );
@@ -1423,7 +1451,7 @@ export default function NotesApp() {
               <input
                 ref={(el) => (titleRefs.current[note.id] = el)}
                 value={draftTitle}
-                onChange={(e) => setDraftTitle(e.target.value)}
+                onChange={(e) => { ensureEditHistory(); setDraftTitle(e.target.value); }}
                 onKeyDown={(e) => titleKeyDown(e, note)}
                 placeholder="Title"
                 spellCheck={true}
@@ -1450,7 +1478,7 @@ export default function NotesApp() {
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: `0 ${s(20)}px` }}>
             {EditorBody(note, colorHex, panelTint)}
           </div>
-          {TagFooter(note, panelTint)}
+          {TagFooter(note, panelTint, colorHex)}
           {PendingCloseOverlay(true)}
         </div>
       </div>

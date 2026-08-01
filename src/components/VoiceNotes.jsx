@@ -7,7 +7,7 @@ function formatDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default function VoiceNotes({ clips, onAdd, onDelete, accent, text, muted }) {
+export default function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, text, muted, compact }) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [playingId, setPlayingId] = useState(null);
@@ -68,16 +68,22 @@ export default function VoiceNotes({ clips, onAdd, onDelete, accent, text, muted
   }
 
   return (
-    <div style={{ marginTop: 8, flexShrink: 0 }}>
+    <div style={{ marginTop: compact ? 4 : 8, flexShrink: 0 }}>
       {clips.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
           {clips.map((clip) => (
-            <div key={clip.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: `${text}12`, borderRadius: 10, padding: '6px 10px' }}>
-              <button onClick={() => togglePlay(clip)} aria-label={playingId === clip.id ? 'Pause' : 'Play'} style={{ background: accent, border: 'none', color: '#fff', borderRadius: '50%', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}>
-                {playingId === clip.id ? <Pause size={13} /> : <Play size={13} />}
+            <div key={clip.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: `${text}12`, borderRadius: 10, padding: compact ? '4px 8px' : '6px 10px' }}>
+              <button onClick={() => togglePlay(clip)} aria-label={playingId === clip.id ? 'Pause' : 'Play'} style={{ background: accent, border: 'none', color: '#fff', borderRadius: '50%', width: compact ? 22 : 26, height: compact ? 22 : 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}>
+                {playingId === clip.id ? <Pause size={compact ? 11 : 13} /> : <Play size={compact ? 11 : 13} />}
               </button>
-              <span style={{ fontSize: 12, color: text, flex: 1 }}>Voice note · {formatDuration(clip.duration)}</span>
-              <button onClick={() => onDelete(clip.id)} aria-label="Delete voice note" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 0 }}>
+              <input
+                value={clip.name || ''}
+                onChange={(e) => onRename(clip.id, e.target.value)}
+                placeholder="Voice note"
+                style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontSize: 12, color: text, padding: 0 }}
+              />
+              <span style={{ fontSize: 11, color: muted, flexShrink: 0 }}>{formatDuration(clip.duration)}</span>
+              <button onClick={() => onDelete(clip.id)} aria-label="Delete voice note" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 0, flexShrink: 0 }}>
                 <Trash2 size={13} />
               </button>
             </div>
@@ -88,6 +94,10 @@ export default function VoiceNotes({ clips, onAdd, onDelete, accent, text, muted
         {recording ? (
           <button onClick={stopRecording} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E8735F', border: 'none', color: '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
             <Square size={12} /> Stop · {formatDuration(elapsed)}
+          </button>
+        ) : compact ? (
+          <button onClick={startRecording} aria-label="Record voice note" title="Record voice note" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${muted}`, color: muted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+            <Mic size={15} />
           </button>
         ) : (
           <button onClick={startRecording} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: `1px solid ${muted}`, color: text, borderRadius: 999, padding: '6px 12px', fontSize: 12, cursor: 'pointer' }}>
