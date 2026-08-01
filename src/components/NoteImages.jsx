@@ -38,25 +38,21 @@ const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onR
   const lightboxImg = images.find((img) => img.id === lightboxId);
 
   return (
-    <div style={{ flexShrink: 0 }}>
+    <>
       <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => { filesToImages(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
-      {images.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginBottom: 6 }}>
-          {images.map((img) => (
-            <div key={img.id} style={{ position: 'relative', width: thumbSize, height: thumbSize, flexShrink: 0 }}>
-              <img
-                src={img.dataUrl}
-                alt=""
-                onClick={() => setLightboxId(img.id)}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: compact ? 6 : 10, cursor: 'zoom-in', display: 'block' }}
-              />
-              <button onClick={() => onDelete(img.id)} aria-label="Delete image" style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16, borderRadius: '50%', background: muted, border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
-                <Trash2 size={9} />
-              </button>
-            </div>
-          ))}
+      {images.map((img) => (
+        <div key={img.id} style={{ position: 'relative', width: thumbSize, height: thumbSize, flexShrink: 0 }}>
+          <img
+            src={img.dataUrl}
+            alt=""
+            onClick={() => setLightboxId(img.id)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: compact ? 6 : 10, cursor: 'zoom-in', display: 'block' }}
+          />
+          <button onClick={() => onDelete(img.id)} aria-label="Delete image" style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16, borderRadius: '50%', background: muted, border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
+            <Trash2 size={9} />
+          </button>
         </div>
-      )}
+      ))}
 
       {lightboxImg && (
         <div onClick={() => setLightboxId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 24 }}>
@@ -77,7 +73,7 @@ const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onR
           <img src={lightboxImg.dataUrl} alt="" style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
         </div>
       )}
-    </div>
+    </>
   );
 });
 

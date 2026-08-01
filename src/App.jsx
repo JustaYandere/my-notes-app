@@ -541,6 +541,15 @@ export default function NotesApp() {
       const previous = p[p.length - 1];
       setFuture((f) => [notes, ...f]);
       setNotes(previous);
+      // The title/body sync effect only re-fires when editingNote's fields
+      // actually differ from before — but if autosave hadn't committed the
+      // typed text to `notes` yet, the restored snapshot can be identical
+      // to current `notes`, so the effect never fires and the editor kept
+      // showing the un-reverted text. Force the draft to match directly.
+      if (editingId) {
+        const restored = previous.find((n) => n.id === editingId);
+        if (restored) { setDraftTitle(restored.title); setDraftBody(restored.body); }
+      }
       return p.slice(0, -1);
     });
   }
@@ -550,6 +559,10 @@ export default function NotesApp() {
       const next = f[0];
       setPast((p) => [...p, notes]);
       setNotes(next);
+      if (editingId) {
+        const restored = next.find((n) => n.id === editingId);
+        if (restored) { setDraftTitle(restored.title); setDraftBody(restored.body); }
+      }
       return f.slice(1);
     });
   }
@@ -1344,23 +1357,22 @@ export default function NotesApp() {
             muted={noteMuted}
             compact
           />
-          <NoteImages
-            ref={noteImagesRef}
-            images={note.images || []}
-            onAdd={(image) => addImage(note, image)}
-            onDelete={(imageId) => deleteImage(note, imageId)}
-            onRename={(imageId, name) => renameImage(note, imageId, name)}
-            text={noteText}
-            muted={noteMuted}
-            compact
-          />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <button onClick={() => voiceNotesRef.current?.toggleRecording()} aria-label="Record voice note" title="Record voice note" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
               <Mic size={15} />
             </button>
             <button onClick={() => noteImagesRef.current?.triggerFilePicker()} aria-label="Add image" title="Add image" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
               <ImageIcon size={15} />
             </button>
+            <NoteImages
+              ref={noteImagesRef}
+              images={note.images || []}
+              onAdd={(image) => addImage(note, image)}
+              onDelete={(imageId) => deleteImage(note, imageId)}
+              onRename={(imageId, name) => renameImage(note, imageId, name)}
+              muted={noteMuted}
+              compact
+            />
           </div>
         </div>
         <div style={{ maxHeight: s(66), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
@@ -1387,10 +1399,10 @@ export default function NotesApp() {
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0 12px 8px' }}>
-          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
             <Undo2 size={17} />
           </button>
-          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
             <Redo2 size={17} />
           </button>
         </div>
@@ -1438,7 +1450,6 @@ export default function NotesApp() {
                 onBlur={() => setTitleFocused(false)}
                 placeholder="Title"
                 spellCheck={true}
-                autoFocus
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(16), color: headerText, padding: '6px 8px' }}
               />
             </div>
@@ -1491,7 +1502,6 @@ export default function NotesApp() {
                 onKeyDown={(e) => titleKeyDown(e, note)}
                 placeholder="Title"
                 spellCheck={true}
-                autoFocus
                 style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(18), color: panelText, padding: 0 }}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', flexShrink: 0 }}>
