@@ -516,7 +516,15 @@ export default function NotesApp() {
   // changes without pushing a snapshot on every single character.
   function ensureEditHistory() {
     if (!editHistoryPushed.current) {
-      pushHistory();
+      // pushHistory() alone would snapshot the raw `notes` array, but typed
+      // text lives in draftTitle/draftBody until a save commits it — so the
+      // snapshot needs the current draft merged in, or undo has nothing
+      // different to restore and the editor visibly does nothing.
+      const snapshotNotes = editingNote
+        ? notes.map((n) => (n.id === editingNote.id ? { ...n, title: draftTitle, body: draftBody } : n))
+        : notes;
+      setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), snapshotNotes]);
+      setFuture([]);
       editHistoryPushed.current = true;
     }
     // A pause in typing "closes" this undo step, so the next change (e.g.
@@ -664,15 +672,14 @@ export default function NotesApp() {
     setNotes((prev) => (prev.some((n) => n.id === localId) ? prev.map((n) => (n.id === localId ? injected : n)) : [injected, ...prev]));
     setEditingId(localId);
     setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes });
-    editHistoryPushed.current = true;
+    editHistoryPushed.current = false;
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
   function startEditing(note) {
-    pushHistory();
     setEditingId(note.id);
     setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes });
-    editHistoryPushed.current = true;
+    editHistoryPushed.current = false;
     setNoteMenuOpen(false); setColorPickerOpen(false); setMenuShareInfo(false); setMenuReminderExpanded(false); setPendingClose(false); setTitleFocused(false);
   }
   function noteChangedSincePreEdit() {
@@ -1284,7 +1291,16 @@ export default function NotesApp() {
     return (
       <>
         {mode !== 'list' && (
-          <div style={mode === 'both' ? { flex: '4 1 0%', minHeight: 0, overflowY: 'auto', ...ruledBg } : { flex: '1 1 auto', minHeight: 120, ...ruledBg }}>
+          <div
+            onClick={(e) => {
+              if (e.target !== e.currentTarget) return;
+              const el = textareaRefs.current[note.id];
+              if (!el) return;
+              el.focus();
+              el.selectionStart = el.selectionEnd = el.value.length;
+            }}
+            style={mode === 'both' ? { flex: '4 1 0%', minHeight: 0, overflowY: 'auto', ...ruledBg } : { flex: '1 1 auto', minHeight: 120, ...ruledBg }}
+          >
             <textarea
               ref={(el) => { textareaRefs.current[note.id] = el; if (el && mode !== 'both') autoGrowTextarea(el); }}
               value={draftBody}
@@ -1371,10 +1387,10 @@ export default function NotesApp() {
           />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0 12px 8px' }}>
-          <button onMouseDown={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
             <Undo2 size={17} />
           </button>
-          <button onMouseDown={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
+          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 2 }}>
             <Redo2 size={17} />
           </button>
         </div>
