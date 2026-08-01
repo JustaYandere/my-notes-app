@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   Search, Plus, Trash2, LayoutGrid, Rows3, Minus, PlusIcon,
   Settings, Download, Upload, X, Lock,
@@ -63,6 +63,7 @@ export default function NotesApp() {
   const [mainBgEffect, setMainBgEffect] = useState('color');
   const [mainBgImage, setMainBgImage] = useState(null);
   const [syncUser, setSyncUser] = useState(null);
+  const [acceptsConnections, setAcceptsConnectionsState] = useState(true);
   const [syncStatus, setSyncStatus] = useState('idle');
   const [syncError, setSyncError] = useState('');
   const [pendingShareTarget, setPendingShareTarget] = useState(null);
@@ -172,6 +173,20 @@ export default function NotesApp() {
   const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
 
   useEffect(() => {
+    if (!supabaseEnabled || !syncUser) return;
+    let cancelled = false;
+    supabase.from('profiles').select('accepts_connections').eq('id', syncUser.id).single().then(({ data }) => {
+      if (!cancelled && data) setAcceptsConnectionsState(data.accepts_connections);
+    });
+    return () => { cancelled = true; };
+  }, [syncUser]);
+
+  async function toggleAcceptsConnections(value) {
+    setAcceptsConnectionsState(value);
+    if (supabaseEnabled && syncUser) await supabase.from('profiles').update({ accepts_connections: value }).eq('id', syncUser.id);
+  }
+
+  useEffect(() => {
     if (!pendingShareTarget || !syncUser || !supabaseEnabled) return;
     const note = notes.find((n) => n.id === pendingShareTarget.noteId);
     if (note?.cloudId) {
@@ -199,7 +214,7 @@ export default function NotesApp() {
 
   function colorHexOf(colorId) { return customColors.find((c) => c.id === colorId)?.hex || customColors[0]?.hex || '#5B9BB8'; }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     let savedNotes = loadLocal(NOTES_KEY);
     if (!savedNotes) {
       const legacyNotes = loadLocal(LEGACY_NOTES_KEY);
@@ -227,6 +242,10 @@ export default function NotesApp() {
         return { ...n, checklist: fixedChecklist };
       });
       if (hadDuplicates) setNotes(initialNotes);
+    } else {
+      // Fresh install, nothing in localStorage yet — the starter notes are
+      // the current `notes` state, so new ids must start past their max.
+      nextId.current = Math.max(4, ...SEED_NOTES.map((n) => (n.id || 0) + 1));
     }
     let savedSettings = loadLocal(SETTINGS_KEY);
     if (!savedSettings) {
@@ -737,6 +756,9 @@ export default function NotesApp() {
   function autoGrowTextarea(el) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
+    // Growing the textarea can push the cursor out of view of the scrollable
+    // note panel around it — nudge it back into sight after the resize.
+    requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
   }
   function pasteImageFromClipboard(e, note) {
     const items = e.clipboardData?.items;
@@ -1550,16 +1572,6 @@ export default function NotesApp() {
                             <ImageIcon size={10} /> {note.images.length}
                           </span>
                         )}
-                        {note.tags?.slice(0, 2).map((tag) => (
-                          <button
-                            key={tag}
-                            onClick={(e) => { e.stopPropagation(); setSelectedTagFilters([tag]); }}
-                            style={{ fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, border: 'none', borderRadius: 999, padding: '2px 7px', flexShrink: 0, cursor: 'pointer' }}
-                          >
-                            #{tag}
-                          </button>
-                        ))}
-                        {note.tags?.length > 2 && <span style={{ fontSize: fz(12), color: `${noteText}99`, flexShrink: 0 }}>…</span>}
                       </div>
                     )}
                   </div>
@@ -1609,16 +1621,6 @@ export default function NotesApp() {
                                 <Mic size={10} /> voice note
                               </span>
                             )}
-                            {note.tags?.slice(0, 2).map((tag) => (
-                              <button
-                                key={tag}
-                                onClick={(e) => { e.stopPropagation(); setSelectedTagFilters([tag]); }}
-                                style={{ fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, border: 'none', borderRadius: 999, padding: '2px 7px', flexShrink: 0, cursor: 'pointer' }}
-                              >
-                                #{tag}
-                              </button>
-                            ))}
-                            {note.tags?.length > 2 && <span style={{ fontSize: fz(12), color: `${noteText}99`, flexShrink: 0 }}>…</span>}
                           </div>
                         )}
                         <span style={{ fontSize: fz(12), color: `${noteText}99`, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDate(note.updatedAt)}</span>
@@ -2010,6 +2012,12 @@ export default function NotesApp() {
 
             {settingsSection === 'other' && (
               <>
+                {syncUser && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={acceptsConnections} onChange={(e) => toggleAcceptsConnections(e.target.checked)} />
+                    Allow others to send me connection requests
+                  </label>
+                )}
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
                   <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />

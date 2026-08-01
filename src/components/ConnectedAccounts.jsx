@@ -44,7 +44,14 @@ export default function ConnectedAccounts({ syncUser, text, muted, bg, borderSty
     const { data: found, error: lookupError } = await supabase.from('profiles').select('id,email').ilike('email', email.trim()).maybeSingle();
     if (lookupError || !found) { setError('No account found with that email.'); setLoading(false); return; }
     const { error: insertError } = await supabase.from('connections').insert({ requester_id: syncUser.id, recipient_id: found.id, status: 'pending' });
-    if (insertError) { setError(insertError.message.includes('duplicate') ? 'Already connected or pending.' : insertError.message); }
+    if (insertError) {
+      const msg = insertError.message.includes('duplicate')
+        ? 'Already connected or pending.'
+        : insertError.message.includes('row-level security')
+          ? "This person isn't accepting connection requests right now."
+          : insertError.message;
+      setError(msg);
+    }
     else { setEmail(''); load(); }
     setLoading(false);
   }

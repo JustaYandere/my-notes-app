@@ -57,6 +57,12 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   const pushTimerRef = useRef(null);
   const syncUserRef = useRef(syncUser);
   useEffect(() => { syncUserRef.current = syncUser; }, [syncUser]);
+  // Which signed-in user we've finished an initial cloud pull for. Assigning
+  // cloud ids and pushing must wait for this — otherwise a note that's
+  // actually already synced (just not matched locally yet) can get stamped
+  // with a brand-new id and re-uploaded as a duplicate before the pull that
+  // would have matched it by its real id has had a chance to land.
+  const pulledForUserRef = useRef(null);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
@@ -71,6 +77,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setSyncError?.(error.message || 'Could not load your cloud notes.');
         return;
       }
+      let mergedResult = [];
       setNotes((prev) => {
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
@@ -92,8 +99,39 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
             syncedRef.current[localId] = newNote.updatedAt;
           }
         });
+        mergedResult = merged;
         return merged;
       });
+
+      // Safety net: collapse any notes that ended up as exact-content
+      // duplicates (e.g. from a past sync race), keeping the newest.
+      const fingerprintOf = (n) => JSON.stringify([
+        (n.title || '').trim(), (n.body || '').trim(), n.mode,
+        (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
+      ]);
+      const groups = new Map();
+      mergedResult
+        .filter((n) => !n.deletedAt && !n.remoteOwnerId && ((n.title || '').trim() || (n.body || '').trim()))
+        .forEach((n) => {
+          const key = fingerprintOf(n);
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(n);
+        });
+      const idsToRemove = [];
+      const cloudIdsToDelete = [];
+      groups.forEach((group) => {
+        if (group.length < 2) return;
+        [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => {
+          idsToRemove.push(n.id);
+          if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
+        });
+      });
+      if (idsToRemove.length > 0) {
+        setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
+        cloudIdsToDelete.forEach((cid) => { supabase.from('notes').delete().eq('id', cid); });
+      }
+
+      pulledForUserRef.current = syncUser.id;
       setSyncStatus?.('idle');
       setSyncError?.('');
     })();
@@ -105,14 +143,14 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   // synchronously (no network round trip) so a reload/crash mid-sync can never cause
   // the same note to be inserted twice.
   useEffect(() => {
-    if (!supabaseEnabled || !syncUser) return;
+    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id) return;
     if (notes.some((n) => !n.cloudId)) {
       setNotes((prev) => prev.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() })));
     }
   }, [notes, syncUser, setNotes]);
 
   useEffect(() => {
-    if (!supabaseEnabled || !syncUser) return;
+    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id) return;
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
     pushTimerRef.current = setTimeout(async () => {
       if (!syncUserRef.current) return;
@@ -121,21 +159,38 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       setSyncStatus?.('syncing');
       let hadError = false;
       let lastErrorMessage = '';
-      for (const note of dirty) {
-        if (!syncUserRef.current) break;
-        // A note shared with me by someone else: update its content only —
-        // never touch id/user_id, or I'd hijack ownership of their note.
-        const { error } = note.remoteOwnerId
-          ? await supabase.from('notes').update(toCloudRowUpdate(note)).eq('id', note.cloudId)
-          : await supabase.from('notes').upsert(toCloudRow(note, syncUser.id));
+
+      const mine = dirty.filter((n) => !n.remoteOwnerId);
+      const shared = dirty.filter((n) => n.remoteOwnerId);
+
+      // Owned notes can all go up in a single bulk upsert instead of one
+      // request per note — much faster for an initial sync of many notes.
+      if (mine.length > 0) {
+        const { error } = await supabase.from('notes').upsert(mine.map((n) => toCloudRow(n, syncUser.id)));
         if (error) {
           console.error('Sync push failed:', error);
           hadError = true;
-          lastErrorMessage = error.message || 'Could not save a note to the cloud.';
+          lastErrorMessage = error.message || 'Could not save your notes to the cloud.';
+        } else {
+          mine.forEach((n) => { syncedRef.current[n.id] = n.updatedAt; });
+        }
+      }
+
+      // Notes shared with me by someone else: update content only, one at a
+      // time (each targets a different row with different values), and
+      // never touch id/user_id, or I'd hijack ownership of their note.
+      for (const note of shared) {
+        if (!syncUserRef.current) break;
+        const { error } = await supabase.from('notes').update(toCloudRowUpdate(note)).eq('id', note.cloudId);
+        if (error) {
+          console.error('Sync push failed:', error);
+          hadError = true;
+          lastErrorMessage = error.message || 'Could not save a shared note to the cloud.';
           continue;
         }
         syncedRef.current[note.id] = note.updatedAt;
       }
+
       if (syncUserRef.current) {
         setSyncStatus?.(hadError ? 'error' : 'idle');
         setSyncError?.(hadError ? lastErrorMessage : '');

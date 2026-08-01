@@ -6,6 +6,7 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
   const [items, setItems] = useState([]);
   const [connections, setConnections] = useState([]);
   const [newNoteTarget, setNewNoteTarget] = useState('');
+  const [filterConnection, setFilterConnection] = useState('all');
 
   const load = useCallback(async () => {
     if (!supabaseEnabled || !syncUser) return;
@@ -35,7 +36,7 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
         const note = (notesData || []).find((n) => n.id === s.note_id);
         const isMine = s.owner_id === syncUser.id;
         const otherId = isMine ? s.shared_with_id : s.owner_id;
-        return { share: s, note, otherEmail: emailMap[otherId], isMine };
+        return { share: s, note, otherId, otherEmail: emailMap[otherId], isMine };
       })
       .filter((x) => x.note);
     setItems(merged);
@@ -83,8 +84,15 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
             {items.length === 0 ? (
               <p style={{ fontSize: 13, color: muted }}>No connected notes yet — share one from a note's menu, or create one above.</p>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {items.map(({ share, note, otherEmail }) => (
+              <>
+                {connections.length > 1 && (
+                  <select value={filterConnection} onChange={(e) => setFilterConnection(e.target.value)} style={{ width: '100%', background: bg, border: borderStyle, borderRadius: 8, padding: '7px 10px', fontSize: 12, color: text, outline: 'none', marginBottom: 12 }}>
+                    <option value="all">All connections</option>
+                    {connections.map((c) => <option key={c.id} value={c.id}>{c.email}</option>)}
+                  </select>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {items.filter((x) => filterConnection === 'all' || x.otherId === filterConnection).map(({ share, note, otherEmail }) => (
                   <button
                     key={share.id}
                     onClick={() => onOpen(note, share)}
@@ -97,7 +105,8 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
                     </div>
                   </button>
                 ))}
-              </div>
+                </div>
+              </>
             )}
           </>
         )}
