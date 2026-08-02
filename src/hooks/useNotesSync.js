@@ -152,7 +152,10 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
 
       if (idsToRemove.length > 0) {
         setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
-        cloudIdsToDelete.forEach((cid) => { supabase.from('notes').delete().eq('id', cid); });
+        // One batched delete instead of N concurrent ones — firing a delete
+        // per row at once can exhaust the connection pool / pile up lock
+        // contention and trip Postgres's statement_timeout.
+        if (cloudIdsToDelete.length > 0) supabase.from('notes').delete().in('id', cloudIdsToDelete);
       }
 
       pulledForUserRef.current = syncUser.id;
@@ -252,5 +255,10 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncUser]);
 
-  return { deleteCloudNote: async (cloudId) => { if (supabaseEnabled && cloudId) await supabase.from('notes').delete().eq('id', cloudId); } };
+  return {
+    deleteCloudNote: async (cloudId) => { if (supabaseEnabled && cloudId) await supabase.from('notes').delete().eq('id', cloudId); },
+    // Batched version for deleting many rows at once (e.g. emptying Trash,
+    // cleaning up duplicates) — a single request instead of one per row.
+    deleteCloudNotes: async (cloudIds) => { if (supabaseEnabled && cloudIds?.length) await supabase.from('notes').delete().in('id', cloudIds); },
+  };
 }

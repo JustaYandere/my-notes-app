@@ -186,7 +186,7 @@ export default function NotesApp() {
   const settingsSectionHistoryPushed = useRef(false);
   const tagFilterHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
-  const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
+  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
@@ -1131,7 +1131,7 @@ export default function NotesApp() {
     if (trashedNotes.length === 0) return;
     if (!window.confirm(`Permanently delete all ${trashedNotes.length} note(s) in Trash?`)) return;
     pushHistory();
-    trashedNotes.forEach((n) => { if (n.cloudId) deleteCloudNote(n.cloudId); });
+    deleteCloudNotes(trashedNotes.map((n) => n.cloudId).filter(Boolean));
     setNotes((prev) => prev.filter((n) => !n.deletedAt));
   }
 
@@ -1175,7 +1175,7 @@ export default function NotesApp() {
       setCleanupStatus('No duplicate or empty notes found.');
       return;
     }
-    cloudIdsToDelete.forEach((cid) => deleteCloudNote(cid));
+    deleteCloudNotes(cloudIdsToDelete);
     setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
     setCleanupStatus(`Removed ${idsToRemove.length} note${idsToRemove.length === 1 ? '' : 's'}. Undo will bring them back if this was wrong.`);
   }
