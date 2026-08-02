@@ -186,6 +186,7 @@ export default function NotesApp() {
   const settingsSectionHistoryPushed = useRef(false);
   const tagFilterHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
+  const keyboardOpenRef = useRef(false);
   const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
 
   useEffect(() => {
@@ -430,6 +431,21 @@ export default function NotesApp() {
   }, [editingId, fullScreenEditor]);
 
   useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    function onViewportResize() {
+      // On Android, the on-screen keyboard shrinks the visual viewport
+      // noticeably (usually 30%+ of the layout height) — used to tell a
+      // focused input with the keyboard actually up apart from one that's
+      // merely focused with no keyboard showing (e.g. the OS already
+      // dismissed it on a prior back press before our JS ever saw it).
+      keyboardOpenRef.current = vv.height < window.innerHeight * 0.75;
+    }
+    vv.addEventListener('resize', onViewportResize);
+    return () => vv.removeEventListener('resize', onViewportResize);
+  }, []);
+
+  useEffect(() => {
     function onPopState() {
       suppressBackNav.current = true;
       if (settingsOpen && settingsSection) {
@@ -437,12 +453,18 @@ export default function NotesApp() {
         setSettingsSection(null);
       } else if (settingsOpen) closeSettings();
       else if (editingId) {
-        // If a text field is focused (keyboard likely open), the first back
-        // press should just dismiss the keyboard — matching normal Android
-        // behavior — not close the note. Re-push the entry we just popped
-        // so the note stays open; the next back press actually closes it.
+        // If a text field is focused AND the on-screen keyboard is actually
+        // showing, the first back press should just dismiss the keyboard —
+        // matching normal Android behavior — not close the note. Re-push the
+        // entry we just popped so the note stays open; the next back press
+        // actually closes it. Gated on the keyboard genuinely being visible
+        // (not just some input having focus) because Android itself often
+        // intercepts the very first back press to dismiss the keyboard
+        // without ever letting it reach this handler — if we didn't check,
+        // our "first press" here would really be the user's second physical
+        // press, wasting it on a blur that already happened, silently.
         const active = document.activeElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.blur) {
+        if (keyboardOpenRef.current && active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.blur) {
           active.blur();
           window.history.pushState({ layer: 'note' }, '');
           requestAnimationFrame(() => { suppressBackNav.current = false; });
