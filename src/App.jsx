@@ -122,6 +122,7 @@ export default function NotesApp() {
   const [selectedTagFilters, setSelectedTagFilters] = useState([]);
   const [selectedNoteIds, setSelectedNoteIds] = useState([]);
   const [bulkColorPickerOpen, setBulkColorPickerOpen] = useState(false);
+  const [bulkMoreOpen, setBulkMoreOpen] = useState(false);
   const [bulkSharePickerOpen, setBulkSharePickerOpen] = useState(false);
   const [bulkShareConnections, setBulkShareConnections] = useState([]);
   const [bulkShareStatus, setBulkShareStatus] = useState('');
@@ -145,6 +146,9 @@ export default function NotesApp() {
   const [backSaveToast, setBackSaveToast] = useState(false);
   const [tagError, setTagError] = useState('');
   const [openFolder, setOpenFolder] = useState(null);
+  const [expandedTagKey, setExpandedTagKey] = useState(null);
+  const [tagInput, setTagInput] = useState('');
+  const [cleanupStatus, setCleanupStatus] = useState('');
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
@@ -180,6 +184,7 @@ export default function NotesApp() {
   const settingsHistoryPushed = useRef(false);
   const connectedNotesHistoryPushed = useRef(false);
   const settingsSectionHistoryPushed = useRef(false);
+  const tagFilterHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
   const { deleteCloudNote } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
 
@@ -295,10 +300,36 @@ export default function NotesApp() {
       if (legacySettings) { savedSettings = legacySettings; saveLocal(SETTINGS_KEY, legacySettings); }
     }
     if (savedSettings) {
-      if (Array.isArray(savedSettings.customColors) && savedSettings.customColors.length) { setCustomColors(savedSettings.customColors); nextColorId.current = savedSettings.customColors.length + 1; }
-      if (Array.isArray(savedSettings.separatorColors) && savedSettings.separatorColors.length) { setSeparatorColors(savedSettings.separatorColors); nextSepColorId.current = savedSettings.separatorColors.length + 1; }
+      // Base the next-id counters on the highest numeric id actually present
+      // (not just the array length) — items can be deleted and re-added
+      // across sessions, and a length-based counter can hand out an id that
+      // collides with one still in use, making two entries look "selected"
+      // at once since both match the same activeId by strict equality.
+      const nextNumericId = (items, prefix, fallback) => {
+        const nums = items.map((it) => parseInt(String(it.id).replace(prefix, ''), 10)).filter((n) => !Number.isNaN(n));
+        return Math.max(fallback, ...nums, 0) + 1;
+      };
+      // Repair any duplicate ids already saved from before the fix above existed.
+      const dedupeById = (items) => {
+        const seen = new Set();
+        return items.filter((it) => (seen.has(it.id) ? false : (seen.add(it.id), true)));
+      };
+      if (Array.isArray(savedSettings.customColors) && savedSettings.customColors.length) {
+        const deduped = dedupeById(savedSettings.customColors);
+        setCustomColors(deduped);
+        nextColorId.current = nextNumericId(deduped, 'c', 4);
+      }
+      if (Array.isArray(savedSettings.separatorColors) && savedSettings.separatorColors.length) {
+        const deduped = dedupeById(savedSettings.separatorColors);
+        setSeparatorColors(deduped);
+        nextSepColorId.current = nextNumericId(deduped, 'c', 4);
+      }
       if (savedSettings.activeThemeId) setActiveThemeId(savedSettings.activeThemeId);
-      if (Array.isArray(savedSettings.customThemes) && savedSettings.customThemes.length) setCustomThemes(savedSettings.customThemes);
+      if (Array.isArray(savedSettings.customThemes) && savedSettings.customThemes.length) {
+        const deduped = dedupeById(savedSettings.customThemes);
+        setCustomThemes(deduped);
+        nextThemeId.current = nextNumericId(deduped, 't', 1);
+      }
       if (typeof savedSettings.modalTint === 'number') setModalTint(savedSettings.modalTint);
       if (typeof savedSettings.transparentCards === 'boolean') setTransparentCards(savedSettings.transparentCards);
       if (savedSettings.separatorColorId) setSeparatorColorId(savedSettings.separatorColorId);
@@ -433,6 +464,9 @@ export default function NotesApp() {
       } else if (connectedNotesOpen) {
         connectedNotesHistoryPushed.current = false;
         setConnectedNotesOpen(false);
+      } else if (selectedTagFilters.length > 0) {
+        tagFilterHistoryPushed.current = false;
+        setSelectedTagFilters([]);
       }
       requestAnimationFrame(() => { suppressBackNav.current = false; });
     }
@@ -476,6 +510,15 @@ export default function NotesApp() {
     }
   }, [connectedNotesOpen]);
 
+  useEffect(() => {
+    if (selectedTagFilters.length > 0 && !tagFilterHistoryPushed.current) {
+      window.history.pushState({ layer: 'tagFilter' }, '');
+      tagFilterHistoryPushed.current = true;
+    } else if (selectedTagFilters.length === 0) {
+      tagFilterHistoryPushed.current = false;
+    }
+  }, [selectedTagFilters]);
+
   const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden && !n.remoteOwnerId), [notes]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
   const trashedNotes = useMemo(() => notes.filter((n) => n.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt), [notes]);
@@ -504,6 +547,13 @@ export default function NotesApp() {
     const real = [...set].filter((t) => t !== VOICE_TAG && t !== IMAGE_TAG).sort();
     return [...(set.has(VOICE_TAG) ? [VOICE_TAG] : []), ...(set.has(IMAGE_TAG) ? [IMAGE_TAG] : []), ...real];
   }, [liveNotes]);
+  const specialTags = useMemo(() => allTags.filter((t) => t === VOICE_TAG || t === IMAGE_TAG), [allTags]);
+  const regularTags = useMemo(() => allTags.filter((t) => t !== VOICE_TAG && t !== IMAGE_TAG), [allTags]);
+  const allKnownTags = useMemo(() => {
+    const set = new Set();
+    notes.forEach((n) => (n.tags || []).forEach((t) => set.add(t)));
+    return [...set];
+  }, [notes]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -683,6 +733,8 @@ export default function NotesApp() {
     setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode, images: [], voiceNotes: [] });
     editHistoryPushed.current = false;
     setOpenFolder(null);
+    setExpandedTagKey(null);
+    setTagInput('');
     setNewNoteSetupOpen(false);
     if (shareWithConnectionId) setPendingShareTarget({ noteId: id, connectionId: shareWithConnectionId });
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
@@ -727,6 +779,8 @@ export default function NotesApp() {
     setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes });
     editHistoryPushed.current = false;
     setOpenFolder(null);
+    setExpandedTagKey(null);
+    setTagInput('');
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
@@ -735,6 +789,8 @@ export default function NotesApp() {
     setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes });
     editHistoryPushed.current = false;
     setOpenFolder(null);
+    setExpandedTagKey(null);
+    setTagInput('');
     setNoteMenuOpen(false); setColorPickerOpen(false); setMenuShareInfo(false); setMenuReminderExpanded(false); setPendingClose(false); setTitleFocused(false);
   }
   function noteChangedSincePreEdit() {
@@ -1025,6 +1081,12 @@ export default function NotesApp() {
     setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, color: colorId } : n)));
     clearSelection();
   }
+  function bulkPin() {
+    pushHistory();
+    const shouldPin = selectedNoteIds.some((id) => !notes.find((n) => n.id === id)?.pinned);
+    setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, pinned: shouldPin } : n)));
+    clearSelection();
+  }
   function bulkExport() {
     const selected = notes.filter((n) => selectedNoteIds.includes(n.id));
     const content = selected.map(noteToMarkdown).join('\n---\n\n');
@@ -1071,6 +1133,51 @@ export default function NotesApp() {
     pushHistory();
     trashedNotes.forEach((n) => { if (n.cloudId) deleteCloudNote(n.cloudId); });
     setNotes((prev) => prev.filter((n) => !n.deletedAt));
+  }
+
+  function cleanUpDuplicateNotes() {
+    pushHistory();
+    const fingerprintOf = (n) => JSON.stringify([
+      (n.title || '').trim(), (n.body || '').trim(), n.mode,
+      (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
+    ]);
+    const groups = new Map();
+    notes
+      .filter((n) => !n.deletedAt && !n.remoteOwnerId && ((n.title || '').trim() || (n.body || '').trim()))
+      .forEach((n) => {
+        const key = fingerprintOf(n);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(n);
+      });
+    const idsToRemove = [];
+    const cloudIdsToDelete = [];
+    groups.forEach((group) => {
+      if (group.length < 2) return;
+      [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => {
+        idsToRemove.push(n.id);
+        if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
+      });
+    });
+    notes
+      .filter((n) => !n.deletedAt && !n.remoteOwnerId && idsToRemove.indexOf(n.id) === -1)
+      .forEach((n) => {
+        const isEmpty = !(n.title || '').trim() && !(n.body || '').trim()
+          && (!n.checklist || n.checklist.length === 0)
+          && (!n.voiceNotes || n.voiceNotes.length === 0)
+          && (!n.images || n.images.length === 0)
+          && (!n.tags || n.tags.length === 0);
+        if (isEmpty) {
+          idsToRemove.push(n.id);
+          if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
+        }
+      });
+    if (idsToRemove.length === 0) {
+      setCleanupStatus('No duplicate or empty notes found.');
+      return;
+    }
+    cloudIdsToDelete.forEach((cid) => deleteCloudNote(cid));
+    setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
+    setCleanupStatus(`Removed ${idsToRemove.length} note${idsToRemove.length === 1 ? '' : 's'}. Undo will bring them back if this was wrong.`);
   }
 
   function exportAll() {
@@ -1426,14 +1533,16 @@ export default function NotesApp() {
               <ImageIcon size={15} />
             </button>
             <div style={{ flex: 1 }} />
-            <button onClick={() => setOpenFolder('voice')} aria-label="Voice notes folder" title="Voice notes" style={{ position: 'relative', width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px solid ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
-              <Folder size={15} />
+            <button onClick={() => setOpenFolder('voice')} aria-label="Voice notes folder" title="Voice notes" style={{ position: 'relative', width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, background: 'none', border: `1px solid ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+              <Folder size={14} />
+              <Mic size={10} />
               {(note.voiceNotes || []).length > 0 && (
                 <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, borderRadius: 999, background: colorHex, color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{note.voiceNotes.length}</span>
               )}
             </button>
-            <button onClick={() => setOpenFolder('image')} aria-label="Images folder" title="Images" style={{ position: 'relative', width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px solid ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
-              <Folder size={15} />
+            <button onClick={() => setOpenFolder('image')} aria-label="Images folder" title="Images" style={{ position: 'relative', width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, background: 'none', border: `1px solid ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+              <Folder size={14} />
+              <ImageIcon size={10} />
               {(note.images || []).length > 0 && (
                 <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, borderRadius: 999, background: colorHex, color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{note.images.length}</span>
               )}
@@ -1441,29 +1550,58 @@ export default function NotesApp() {
           </div>
         </div>
         <div style={{ maxHeight: s(66), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
-          {note.tags.map((tag) => (
-            <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, background: `${noteText}22`, borderRadius: 999, padding: '4px 9px', color: noteText }}>
-              <button onClick={() => { setSelectedTagFilters([tag]); setEditingId(null); }} style={{ background: 'none', border: 'none', color: noteText, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, padding: 0, fontSize: 12 }}>
-                # {tag}
-              </button>
-              <X size={11} style={{ cursor: 'pointer' }} onClick={() => removeTag(note, tag)} />
-            </span>
-          ))}
+          {note.tags.map((tag) => {
+            const tagKey = `${note.id}:${tag}`;
+            const isExpanded = expandedTagKey === tagKey;
+            return (
+              <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, background: `${noteText}22`, borderRadius: 999, padding: '4px 9px', color: noteText }}>
+                <button
+                  onClick={() => setExpandedTagKey((prev) => (prev === tagKey ? null : tagKey))}
+                  className={isExpanded ? '' : 'tag-pill-label'}
+                  style={{ background: 'none', border: 'none', color: noteText, cursor: 'pointer', padding: 0, fontSize: 12 }}
+                >
+                  # {tag}
+                </button>
+                <X size={11} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => removeTag(note, tag)} />
+              </span>
+            );
+          })}
           <input
             ref={(el) => (tagInputRefs.current[note.id] = el)}
+            value={tagInput}
+            onChange={(e) => setTagInput(e.target.value)}
             placeholder="Add keyword + Enter"
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                const input = tagInputRefs.current[note.id];
-                addTag(note, input.value);
-                input.value = '';
+                addTag(note, tagInput);
+                setTagInput('');
               }
             }}
             style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99` }}
           />
           {tagError && <span style={{ fontSize: 11, color: '#E8735F', flexShrink: 0 }}>{tagError}</span>}
         </div>
+        {(() => {
+          const tagQuery = tagInput.trim().toLowerCase();
+          const tagSuggestions = tagQuery
+            ? allKnownTags.filter((t) => t.startsWith(tagQuery) && !note.tags.includes(t)).slice(0, 5)
+            : [];
+          if (tagSuggestions.length === 0) return null;
+          return (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 12px 8px' }}>
+              {tagSuggestions.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => { addTag(note, t); setTagInput(''); }}
+                  style={{ fontSize: 11, background: 'none', border: `1px dashed ${noteMuted}`, borderRadius: 999, padding: '3px 8px', color: noteMuted, cursor: 'pointer' }}
+                >
+                  # {t}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0 12px 8px' }}>
           <button className="undo-redo-btn" onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
             <Undo2 size={17} />
@@ -1632,9 +1770,12 @@ export default function NotesApp() {
       <AmbientAudio enabled={ambientSound === 'upload' && !!ambientSoundData} dataUrl={ambientSoundData} volume={ambientVolume} />
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+        .note-card, .note-row { -webkit-tap-highlight-color: transparent; }
         .note-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
-        .note-card:hover { transform: translateY(-2px) rotate(-0.3deg); }
-        .note-row:hover { filter: brightness(1.08); }
+        @media (hover: hover) {
+          .note-card:hover { transform: translateY(-2px) rotate(-0.3deg); }
+          .note-row:hover { filter: brightness(1.08); }
+        }
         textarea, input, select { font-family: inherit; }
         ::selection { background: #E8735F55; }
         ::placeholder { color: ${muted}; opacity: 1; }
@@ -1648,11 +1789,14 @@ export default function NotesApp() {
         input[type=checkbox]:checked { background: #E8735F; border-color: #E8735F; }
         input[type=checkbox]:checked::after { content: ''; position: absolute; left: 5px; top: 1px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
 
+        .tag-pill-label { max-width: 90px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+
         @media (max-width: 640px) {
           .app-shell { padding-left: 0 !important; padding-right: 0 !important; }
           .app-header { padding-left: 16px; padding-right: 16px; flex-wrap: nowrap !important; }
           .app-header h1 { font-size: 24px !important; }
           .undo-redo-btn { padding: 16px !important; }
+          .tag-pill-label { max-width: 44px; }
         }
       `}</style>
 
@@ -1890,29 +2034,38 @@ export default function NotesApp() {
               </>
             )}
           </div>
-          {selectedNoteIds.length === 1 && (
-            <button onClick={() => { setSimilarFocusId(selectedNoteIds[0]); setSimilarOpen(true); clearSelection(); }} aria-label="Find similar notes" title="Find similar notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><GitCompare size={20} /></button>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setBulkMoreOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><MoreVertical size={20} /></button>
+            {bulkMoreOpen && (
+              <>
+                <div onClick={() => setBulkMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+                <div style={{ position: 'absolute', bottom: '100%', right: 0, display: 'flex', flexDirection: 'column', width: 210, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 6, zIndex: 2, marginBottom: 6 }}>
+                  <button onClick={bulkPin} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Pin size={15} /> Pin</button>
+                  {selectedNoteIds.length === 1 && (
+                    <button onClick={() => { setSimilarFocusId(selectedNoteIds[0]); setSimilarOpen(true); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><GitCompare size={15} /> Similar notes</button>
+                  )}
+                  <button onClick={() => { bulkExport(); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Download size={15} /> Export notes</button>
+                  {syncUser && (
+                    <button onClick={() => { openBulkSharePicker(); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Users size={15} /> Move to connected notes</button>
+                  )}
+                  <button onClick={() => { bulkHide(); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><EyeOff size={15} /> Hide notes</button>
+                </div>
+              </>
+            )}
+          </div>
+          {bulkSharePickerOpen && (
+            <>
+              <div onClick={() => setBulkSharePickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
+              <div style={{ position: 'absolute', bottom: 60, right: 16, display: 'flex', flexDirection: 'column', gap: 4, width: 200, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 10, zIndex: 2 }}>
+                <span style={{ fontSize: 12, color: muted, marginBottom: 2 }}>Share with a connection</span>
+                {bulkShareConnections.length === 0 && <span style={{ fontSize: 12, color: muted }}>No connected accounts yet.</span>}
+                {bulkShareConnections.map((c) => (
+                  <button key={c.id} onClick={() => bulkShareWith(c.id)} style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '4px 0', fontSize: 13, textAlign: 'left' }}>{c.email}</button>
+                ))}
+                {bulkShareStatus && <span style={{ fontSize: 11, color: '#E8735F' }}>{bulkShareStatus}</span>}
+              </div>
+            </>
           )}
-          <button onClick={bulkExport} aria-label="Export notes" title="Export notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Download size={20} /></button>
-          {syncUser && (
-            <div style={{ position: 'relative' }}>
-              <button onClick={openBulkSharePicker} aria-label="Move to connected notes" title="Move to connected notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Users size={20} /></button>
-              {bulkSharePickerOpen && (
-                <>
-                  <div onClick={() => setBulkSharePickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
-                  <div style={{ position: 'absolute', bottom: '100%', right: 0, display: 'flex', flexDirection: 'column', gap: 4, width: 200, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 10, zIndex: 2, marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, color: muted, marginBottom: 2 }}>Share with a connection</span>
-                    {bulkShareConnections.length === 0 && <span style={{ fontSize: 12, color: muted }}>No connected accounts yet.</span>}
-                    {bulkShareConnections.map((c) => (
-                      <button key={c.id} onClick={() => bulkShareWith(c.id)} style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '4px 0', fontSize: 13, textAlign: 'left' }}>{c.email}</button>
-                    ))}
-                    {bulkShareStatus && <span style={{ fontSize: 11, color: '#E8735F' }}>{bulkShareStatus}</span>}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          <button onClick={bulkHide} aria-label="Hide notes" title="Hide notes" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><EyeOff size={20} /></button>
           <button onClick={bulkDelete} aria-label="Delete notes" title="Delete notes" style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={20} /></button>
         </div>
       )}
@@ -1924,39 +2077,59 @@ export default function NotesApp() {
       )}
 
       {allTags.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: 64, background: elevated, borderTop: borderStyle, display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', overflowX: 'auto', zIndex: 9 }}>
-          {selectedTagFilters.length > 0 && (
-            <button onClick={() => setSelectedTagFilters([])} aria-label="Clear keyword filters" title="Clear keyword filters" style={{ flexShrink: 0, background: 'none', border: borderStyle, borderRadius: 999, padding: '6px 10px', fontSize: 12, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <X size={12} /> Clear
-            </button>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: elevated, borderTop: borderStyle, zIndex: 9 }}>
+          {specialTags.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', overflowX: 'auto', borderBottom: borderStyle }}>
+              {specialTags.map((tag) => {
+                const active = selectedTagFilters.includes(tag);
+                const isVoice = tag === VOICE_TAG;
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => setSelectedTagFilters((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, background: active ? '#E8735F' : bg, color: active ? '#fff' : text, border: active ? 'none' : borderStyle,
+                      borderRadius: 999, padding: '6px 12px', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {isVoice ? (<><Mic size={12} /> voice</>) : (<><ImageIcon size={12} /> img</>)}
+                  </button>
+                );
+              })}
+            </div>
           )}
-          {selectedTagFilters.length > 1 && (
-            <button
-              onClick={() => setTagFilterMode((m) => (m === 'all' ? 'any' : 'all'))}
-              aria-label="Toggle match all/any keywords"
-              title={tagFilterMode === 'all' ? 'Matching notes with ALL selected keywords' : 'Matching notes with ANY selected keyword'}
-              style={{ flexShrink: 0, background: 'none', border: borderStyle, borderRadius: 999, padding: '6px 10px', fontSize: 12, color: muted, cursor: 'pointer', whiteSpace: 'nowrap' }}
-            >
-              Match: {tagFilterMode === 'all' ? 'All' : 'Any'}
-            </button>
-          )}
-          {allTags.map((tag) => {
-            const active = selectedTagFilters.includes(tag);
-            const isVoice = tag === VOICE_TAG;
-            const isImage = tag === IMAGE_TAG;
-            return (
-              <button
-                key={tag}
-                onClick={() => setSelectedTagFilters((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, background: active ? '#E8735F' : bg, color: active ? '#fff' : text, border: active ? 'none' : borderStyle,
-                  borderRadius: 999, padding: '6px 12px', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap',
-                }}
-              >
-                {isVoice ? (<><Mic size={12} /> voice note</>) : isImage ? (<><ImageIcon size={12} /> img</>) : `# ${tag}`}
+          <div style={{ height: 64, display: 'flex', alignItems: 'center', gap: 8, padding: '0 16px', overflowX: 'auto' }}>
+            {selectedTagFilters.length > 0 && (
+              <button onClick={() => setSelectedTagFilters([])} aria-label="Clear keyword filters" title="Clear keyword filters" style={{ flexShrink: 0, background: 'none', border: borderStyle, borderRadius: 999, padding: '6px 10px', fontSize: 12, color: muted, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <X size={12} /> Clear
               </button>
-            );
-          })}
+            )}
+            {selectedTagFilters.length > 1 && (
+              <button
+                onClick={() => setTagFilterMode((m) => (m === 'all' ? 'any' : 'all'))}
+                aria-label="Toggle match all/any keywords"
+                title={tagFilterMode === 'all' ? 'Matching notes with ALL selected keywords' : 'Matching notes with ANY selected keyword'}
+                style={{ flexShrink: 0, background: 'none', border: borderStyle, borderRadius: 999, padding: '6px 10px', fontSize: 12, color: muted, cursor: 'pointer', whiteSpace: 'nowrap' }}
+              >
+                Match: {tagFilterMode === 'all' ? 'All' : 'Any'}
+              </button>
+            )}
+            {regularTags.map((tag) => {
+              const active = selectedTagFilters.includes(tag);
+              return (
+                <button
+                  key={tag}
+                  onClick={() => setSelectedTagFilters((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]))}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, background: active ? '#E8735F' : bg, color: active ? '#fff' : text, border: active ? 'none' : borderStyle,
+                    borderRadius: 999, padding: '6px 12px', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap',
+                  }}
+                >
+                  # {tag}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -2308,6 +2481,11 @@ export default function NotesApp() {
                   <button onClick={() => setTrashOpen(true)} style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
                     <Archive size={15} /> Trash{trashedNotes.length > 0 ? ` (${trashedNotes.length})` : ''}
                   </button>
+                </div>
+
+                <div style={{ borderTop: borderStyle, paddingTop: 16, marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <button onClick={cleanUpDuplicateNotes} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><GitCompare size={15} /> Clean up duplicate &amp; empty notes</button>
+                  {cleanupStatus && <p style={{ fontSize: 12, color: muted, margin: '2px 0 0' }}>{cleanupStatus}</p>}
                 </div>
 
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>

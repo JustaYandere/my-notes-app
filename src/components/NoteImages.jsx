@@ -18,6 +18,7 @@ function downloadImage(dataUrl, name) {
 const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onRename, muted, popupOpen, onClosePopup }, ref) {
   const fileInputRef = useRef(null);
   const [lightboxId, setLightboxId] = useState(null);
+  const [confirmDownload, setConfirmDownload] = useState(false);
 
   useImperativeHandle(ref, () => ({
     triggerFilePicker: () => fileInputRef.current?.click(),
@@ -70,7 +71,7 @@ const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onR
       )}
 
       {lightboxImg && (
-        <div onClick={() => setLightboxId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 24 }}>
+        <div onClick={() => { setLightboxId(null); setConfirmDownload(false); }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 24 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, width: '100%', maxWidth: 400 }}>
             <input
               value={lightboxImg.name || ''}
@@ -78,14 +79,26 @@ const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onR
               placeholder="Image name"
               style={{ flex: 1, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 8, padding: '7px 10px', fontSize: 13, color: '#fff', outline: 'none' }}
             />
-            <button onClick={() => downloadImage(lightboxImg.dataUrl, lightboxImg.name)} aria-label="Download image" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 6 }}>
+            <button onClick={() => setConfirmDownload(true)} aria-label="Download image" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 6 }}>
               <Download size={22} />
             </button>
-            <button onClick={() => setLightboxId(null)} aria-label="Close" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 6 }}>
+            <button onClick={() => { setLightboxId(null); setConfirmDownload(false); }} aria-label="Close" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 6 }}>
               <X size={24} />
             </button>
           </div>
           <img src={lightboxImg.dataUrl} alt="" style={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 8 }} onClick={(e) => e.stopPropagation()} />
+
+          {confirmDownload && (
+            <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+              <div style={{ background: '#2a2a2a', borderRadius: 12, padding: 18, maxWidth: 280, textAlign: 'center' }}>
+                <p style={{ color: '#fff', fontSize: 14, margin: '0 0 14px' }}>Download this image?</p>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                  <button onClick={() => setConfirmDownload(false)} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.3)', color: '#fff', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+                  <button onClick={() => { downloadImage(lightboxImg.dataUrl, lightboxImg.name); setConfirmDownload(false); }} style={{ background: '#E8735F', border: 'none', color: '#fff', borderRadius: 8, padding: '7px 14px', fontSize: 13, cursor: 'pointer' }}>Download</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>
