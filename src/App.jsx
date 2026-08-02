@@ -1733,9 +1733,11 @@ export default function NotesApp() {
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(16), color: headerText, padding: '6px 8px' }}
               />
             </div>
-            <button onClick={() => togglePin(note)} aria-label={note.pinned ? 'Unpin note' : 'Pin note'} title={note.pinned ? 'Unpin note' : 'Pin note'} style={{ background: 'none', border: 'none', color: headerText, opacity: note.pinned ? 0.85 : 0.5, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
-              <Pin size={16} />
-            </button>
+            {note.pinned && (
+              <button onClick={() => togglePin(note)} aria-label="Unpin note" title="Unpin note" style={{ background: 'none', border: 'none', color: headerText, opacity: 0.85, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
+                <Pin size={16} />
+              </button>
+            )}
             {ColorPickerButton(note, headerText)}
             <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
               {modeLetter}
@@ -1787,9 +1789,11 @@ export default function NotesApp() {
                 style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(18), color: panelText, padding: 0 }}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', flexShrink: 0 }}>
-                <button onClick={() => togglePin(note)} aria-label={note.pinned ? 'Unpin note' : 'Pin note'} title={note.pinned ? 'Unpin note' : 'Pin note'} style={{ background: 'none', border: 'none', color: panelText, opacity: note.pinned ? 0.7 : 0.4, cursor: 'pointer', display: 'flex', padding: 4 }}>
-                  <Pin size={15} />
-                </button>
+                {note.pinned && (
+                  <button onClick={() => togglePin(note)} aria-label="Unpin note" title="Unpin note" style={{ background: 'none', border: 'none', color: panelText, opacity: 0.7, cursor: 'pointer', display: 'flex', padding: 4 }}>
+                    <Pin size={15} />
+                  </button>
+                )}
                 {ColorPickerButton(note, panelText)}
                 <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
                   {modeLetter}
@@ -2097,7 +2101,7 @@ export default function NotesApp() {
       )}
 
       {selectedNoteIds.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: elevated, borderTop: borderStyle, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 22, zIndex: 40, boxShadow: '0 -4px 14px rgba(0,0,0,0.15)' }}>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: elevated, borderTop: borderStyle, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 34, zIndex: 40, boxShadow: '0 -4px 14px rgba(0,0,0,0.15)' }}>
           <button onClick={clearSelection} aria-label="Cancel selection" title="Cancel selection" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><X size={22} /></button>
           <span style={{ fontSize: 14, color: text, fontWeight: 600, flexShrink: 0 }}>{selectedNoteIds.length} selected</span>
           <div style={{ flex: 1 }} />
@@ -2121,7 +2125,7 @@ export default function NotesApp() {
               <>
                 <div onClick={() => setBulkMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
                 <div style={{ position: 'absolute', bottom: '100%', right: 0, display: 'flex', flexDirection: 'column', width: 210, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 6, zIndex: 2, marginBottom: 6 }}>
-                  <button onClick={bulkPin} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Pin size={15} /> Pin</button>
+                  <button onClick={bulkPin} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Pin size={15} /> {selectedNoteIds.every((id) => notes.find((n) => n.id === id)?.pinned) ? 'Unpin' : 'Pin'}</button>
                   {selectedNoteIds.length === 1 && (
                     <button onClick={() => { setSimilarFocusId(selectedNoteIds[0]); setSimilarOpen(true); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><GitCompare size={15} /> Similar notes</button>
                   )}
@@ -2247,11 +2251,11 @@ export default function NotesApp() {
                 <button onClick={() => setSettingsSection('view')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <LayoutGrid size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>View</span> <ChevronRight size={16} style={{ color: muted }} />
                 </button>
-                <button onClick={() => setSettingsSection('other')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
-                  <SlidersHorizontal size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Other</span> <ChevronRight size={16} style={{ color: muted }} />
-                </button>
                 <button onClick={() => setSettingsSection('account')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <User size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Account</span> <ChevronRight size={16} style={{ color: muted }} />
+                </button>
+                <button onClick={() => setSettingsSection('other')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
+                  <SlidersHorizontal size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Other</span> <ChevronRight size={16} style={{ color: muted }} />
                 </button>
               </div>
             )}
