@@ -4,7 +4,7 @@ import {
   Settings, Download, Upload, X, Lock,
   GitCompare, RotateCcw, Archive, Check, Undo2, Redo2, Save, ArrowLeft,
   MoreVertical, Pin, EyeOff, Eye, FileText, Share2, Palette, Type, SlidersHorizontal, ChevronRight, Paintbrush, Square, Maximize2,
-  CloudRain, Sparkles, Image as ImageIcon, Ban, Bell, BellOff, Mic, User, Users, Music,
+  CloudRain, Sparkles, Image as ImageIcon, Ban, Bell, BellOff, Mic, User, Users, Music, Folder,
 } from 'lucide-react';
 
 import { hslToRgb, rgbToHex, mixColors, computeThemeFromColor, contrastText } from './utils/colorMath';
@@ -143,6 +143,8 @@ export default function NotesApp() {
   const [future, setFuture] = useState([]);
   const [justSaved, setJustSaved] = useState(false);
   const [backSaveToast, setBackSaveToast] = useState(false);
+  const [tagError, setTagError] = useState('');
+  const [openFolder, setOpenFolder] = useState(null);
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
@@ -242,6 +244,26 @@ export default function NotesApp() {
           && (!n.tags || n.tags.length === 0);
         return !isEmpty;
       });
+      // Also collapse any notes that are exact-content duplicates of each
+      // other (e.g. from a past save/sync race), keeping the newest.
+      const fingerprintOf = (n) => JSON.stringify([
+        (n.title || '').trim(), (n.body || '').trim(), n.mode,
+        (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
+      ]);
+      const dupGroups = new Map();
+      initialNotes
+        .filter((n) => !n.deletedAt && !n.remoteOwnerId && ((n.title || '').trim() || (n.body || '').trim()))
+        .forEach((n) => {
+          const key = fingerprintOf(n);
+          if (!dupGroups.has(key)) dupGroups.set(key, []);
+          dupGroups.get(key).push(n);
+        });
+      const dupIdsToRemove = new Set();
+      dupGroups.forEach((group) => {
+        if (group.length < 2) return;
+        [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => dupIdsToRemove.add(n.id));
+      });
+      if (dupIdsToRemove.size > 0) initialNotes = initialNotes.filter((n) => !dupIdsToRemove.has(n.id));
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
       setNotes(initialNotes);
       nextId.current = Math.max(4, ...initialNotes.map((n) => (n.id || 0) + 1));
@@ -660,6 +682,7 @@ export default function NotesApp() {
     setEditingId(id);
     setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode, images: [], voiceNotes: [] });
     editHistoryPushed.current = false;
+    setOpenFolder(null);
     setNewNoteSetupOpen(false);
     if (shareWithConnectionId) setPendingShareTarget({ noteId: id, connectionId: shareWithConnectionId });
     requestAnimationFrame(() => titleRefs.current[id]?.focus());
@@ -703,6 +726,7 @@ export default function NotesApp() {
     setEditingId(localId);
     setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes });
     editHistoryPushed.current = false;
+    setOpenFolder(null);
   }
 
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
@@ -710,6 +734,7 @@ export default function NotesApp() {
     setEditingId(note.id);
     setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes });
     editHistoryPushed.current = false;
+    setOpenFolder(null);
     setNoteMenuOpen(false); setColorPickerOpen(false); setMenuShareInfo(false); setMenuReminderExpanded(false); setPendingClose(false); setTitleFocused(false);
   }
   function noteChangedSincePreEdit() {
@@ -881,8 +906,13 @@ export default function NotesApp() {
   function autoGrowTextarea(el) {
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight}px`;
+  }
+  function autoGrowAndScrollTextarea(el) {
+    autoGrowTextarea(el);
     // Growing the textarea can push the cursor out of view of the scrollable
-    // note panel around it — nudge it back into sight after the resize.
+    // note panel around it — nudge it back into sight after the resize. Only
+    // do this on actual typing (not every re-render) or unrelated edits like
+    // renaming a voice note would yank the view around.
     requestAnimationFrame(() => el.scrollIntoView({ block: 'nearest', inline: 'nearest' }));
   }
   function pasteImageFromClipboard(e, note) {
@@ -902,6 +932,11 @@ export default function NotesApp() {
   function addTag(note, tag) {
     const clean = tag.trim().toLowerCase().replace(/\s+/g, '-');
     if (!clean) return;
+    if (note.tags.length >= 4) {
+      setTagError('4 tags max');
+      setTimeout(() => setTagError(''), 2000);
+      return;
+    }
     pushHistory();
     setNotes((prev) => prev.map((n) => (n.id === note.id && !n.tags.includes(clean) ? { ...n, tags: [...n.tags, clean], updatedAt: Date.now() } : n)));
   }
@@ -1334,7 +1369,7 @@ export default function NotesApp() {
             <textarea
               ref={(el) => { textareaRefs.current[note.id] = el; if (el && mode !== 'both') autoGrowTextarea(el); }}
               value={draftBody}
-              onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); if (mode !== 'both') autoGrowTextarea(e.target); }}
+              onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); if (mode !== 'both') autoGrowAndScrollTextarea(e.target); }}
               onPaste={(e) => pasteImageFromClipboard(e, note)}
               onBlur={() => {
                 if (autoMoveCompleted) {
@@ -1370,9 +1405,18 @@ export default function NotesApp() {
             onDelete={(clipId) => deleteVoiceNote(note, clipId)}
             onRename={(clipId, name) => renameVoiceNote(note, clipId, name)}
             accent={colorHex}
-            text={noteText}
+            popupOpen={openFolder === 'voice'}
+            onClosePopup={() => setOpenFolder(null)}
+          />
+          <NoteImages
+            ref={noteImagesRef}
+            images={note.images || []}
+            onAdd={(image) => addImage(note, image)}
+            onDelete={(imageId) => deleteImage(note, imageId)}
+            onRename={(imageId, name) => renameImage(note, imageId, name)}
             muted={noteMuted}
-            compact
+            popupOpen={openFolder === 'image'}
+            onClosePopup={() => setOpenFolder(null)}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
             <button onClick={() => voiceNotesRef.current?.toggleRecording()} aria-label="Record voice note" title="Record voice note" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
@@ -1381,15 +1425,19 @@ export default function NotesApp() {
             <button onClick={() => noteImagesRef.current?.triggerFilePicker()} aria-label="Add image" title="Add image" style={{ width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px dashed ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
               <ImageIcon size={15} />
             </button>
-            <NoteImages
-              ref={noteImagesRef}
-              images={note.images || []}
-              onAdd={(image) => addImage(note, image)}
-              onDelete={(imageId) => deleteImage(note, imageId)}
-              onRename={(imageId, name) => renameImage(note, imageId, name)}
-              muted={noteMuted}
-              compact
-            />
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setOpenFolder('voice')} aria-label="Voice notes folder" title="Voice notes" style={{ position: 'relative', width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px solid ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+              <Folder size={15} />
+              {(note.voiceNotes || []).length > 0 && (
+                <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, borderRadius: 999, background: colorHex, color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{note.voiceNotes.length}</span>
+              )}
+            </button>
+            <button onClick={() => setOpenFolder('image')} aria-label="Images folder" title="Images" style={{ position: 'relative', width: 36, height: 36, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'none', border: `1px solid ${noteMuted}`, color: noteMuted, borderRadius: 6, cursor: 'pointer', padding: 0 }}>
+              <Folder size={15} />
+              {(note.images || []).length > 0 && (
+                <span style={{ position: 'absolute', top: -5, right: -5, minWidth: 15, height: 15, borderRadius: 999, background: colorHex, color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>{note.images.length}</span>
+              )}
+            </button>
           </div>
         </div>
         <div style={{ maxHeight: s(66), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
@@ -1414,12 +1462,13 @@ export default function NotesApp() {
             }}
             style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99` }}
           />
+          {tagError && <span style={{ fontSize: 11, color: '#E8735F', flexShrink: 0 }}>{tagError}</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0 12px 8px' }}>
-          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
+          <button className="undo-redo-btn" onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
             <Undo2 size={17} />
           </button>
-          <button onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
+          <button className="undo-redo-btn" onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo" style={{ background: 'none', border: 'none', color: future.length === 0 ? `${noteText}50` : noteText, cursor: future.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
             <Redo2 size={17} />
           </button>
         </div>
@@ -1603,6 +1652,7 @@ export default function NotesApp() {
           .app-shell { padding-left: 0 !important; padding-right: 0 !important; }
           .app-header { padding-left: 16px; padding-right: 16px; flex-wrap: nowrap !important; }
           .app-header h1 { font-size: 24px !important; }
+          .undo-redo-btn { padding: 16px !important; }
         }
       `}</style>
 
@@ -1867,7 +1917,7 @@ export default function NotesApp() {
         </div>
       )}
 
-      {backSaveToast && (
+      {(backSaveToast || justSaved) && (
         <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#2f2f2f', color: '#fff', padding: '8px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, zIndex: 200, boxShadow: '0 4px 14px rgba(0,0,0,0.35)', pointerEvents: 'none' }}>
           Saved
         </div>

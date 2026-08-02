@@ -15,10 +15,9 @@ function downloadImage(dataUrl, name) {
   document.body.removeChild(a);
 }
 
-const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onRename, muted, compact }, ref) {
+const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onRename, muted, popupOpen, onClosePopup }, ref) {
   const fileInputRef = useRef(null);
   const [lightboxId, setLightboxId] = useState(null);
-  const thumbSize = compact ? 36 : 72;
 
   useImperativeHandle(ref, () => ({
     triggerFilePicker: () => fileInputRef.current?.click(),
@@ -40,19 +39,35 @@ const NoteImages = forwardRef(function NoteImages({ images, onAdd, onDelete, onR
   return (
     <>
       <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => { filesToImages(e.target.files); e.target.value = ''; }} style={{ display: 'none' }} />
-      {images.map((img) => (
-        <div key={img.id} style={{ position: 'relative', width: thumbSize, height: thumbSize, flexShrink: 0 }}>
-          <img
-            src={img.dataUrl}
-            alt=""
-            onClick={() => setLightboxId(img.id)}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: compact ? 6 : 10, cursor: 'zoom-in', display: 'block' }}
-          />
-          <button onClick={() => onDelete(img.id)} aria-label="Delete image" style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16, borderRadius: '50%', background: muted, border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
-            <Trash2 size={9} />
-          </button>
+
+      {popupOpen && (
+        <div onClick={onClosePopup} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 490, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '60vh', overflowY: 'auto', background: '#1f1f1f', borderRadius: 14, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Images</span>
+              <button onClick={onClosePopup} aria-label="Close" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            {images.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', margin: 0 }}>No images yet.</p>}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {images.map((img) => (
+                <div key={img.id} style={{ position: 'relative', width: 72, height: 72, flexShrink: 0 }}>
+                  <img
+                    src={img.dataUrl}
+                    alt=""
+                    onClick={() => setLightboxId(img.id)}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 10, cursor: 'zoom-in', display: 'block' }}
+                  />
+                  <button onClick={() => onDelete(img.id)} aria-label="Delete image" style={{ position: 'absolute', top: -5, right: -5, width: 16, height: 16, borderRadius: '50%', background: muted, border: 'none', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}>
+                    <Trash2 size={9} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      ))}
+      )}
 
       {lightboxImg && (
         <div onClick={() => setLightboxId(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 500, padding: 24 }}>

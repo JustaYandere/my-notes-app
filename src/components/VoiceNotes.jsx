@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Square, Play, Pause, Trash2 } from 'lucide-react';
+import { Square, Play, Pause, Trash2, X } from 'lucide-react';
 
 function formatDuration(sec) {
   const m = Math.floor(sec / 60);
@@ -7,7 +7,7 @@ function formatDuration(sec) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-const VoiceNotes = forwardRef(function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, text, muted, compact }, ref) {
+const VoiceNotes = forwardRef(function VoiceNotes({ clips, onAdd, onDelete, onRename, accent, popupOpen, onClosePopup }, ref) {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [playingId, setPlayingId] = useState(null);
@@ -74,33 +74,45 @@ const VoiceNotes = forwardRef(function VoiceNotes({ clips, onAdd, onDelete, onRe
 
   return (
     <div style={{ flexShrink: 0 }}>
-      {clips.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 6 }}>
-          {clips.map((clip) => (
-            <div key={clip.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: `${text}12`, borderRadius: 10, padding: compact ? '4px 8px' : '6px 10px' }}>
-              <button onClick={() => togglePlay(clip)} aria-label={playingId === clip.id ? 'Pause' : 'Play'} style={{ background: accent, border: 'none', color: '#fff', borderRadius: '50%', width: compact ? 22 : 26, height: compact ? 22 : 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}>
-                {playingId === clip.id ? <Pause size={compact ? 11 : 13} /> : <Play size={compact ? 11 : 13} />}
-              </button>
-              <input
-                value={clip.name || ''}
-                onChange={(e) => onRename(clip.id, e.target.value)}
-                placeholder="Voice note"
-                style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontSize: 12, color: text, padding: 0 }}
-              />
-              <span style={{ fontSize: 11, color: muted, flexShrink: 0 }}>{formatDuration(clip.duration)}</span>
-              <button onClick={() => onDelete(clip.id)} aria-label="Delete voice note" style={{ background: 'none', border: 'none', color: muted, cursor: 'pointer', display: 'flex', padding: 0, flexShrink: 0 }}>
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
       {recording && (
         <button onClick={stopRecording} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#E8735F', border: 'none', color: '#fff', borderRadius: 999, padding: '6px 12px', fontSize: 12, cursor: 'pointer', marginBottom: 6 }}>
           <Square size={12} /> Stop · {formatDuration(elapsed)}
         </button>
       )}
       {error && <p style={{ fontSize: 11, color: '#E8735F', margin: '0 0 6px' }}>{error}</p>}
+
+      {popupOpen && (
+        <div onClick={onClosePopup} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 500, padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '60vh', overflowY: 'auto', background: '#1f1f1f', borderRadius: 14, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Voice notes</span>
+              <button onClick={onClosePopup} aria-label="Close" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', padding: 4 }}>
+                <X size={18} />
+              </button>
+            </div>
+            {clips.length === 0 && <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', margin: 0 }}>No voice notes yet.</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {clips.map((clip) => (
+                <div key={clip.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '6px 10px' }}>
+                  <button onClick={() => togglePlay(clip)} aria-label={playingId === clip.id ? 'Pause' : 'Play'} style={{ background: accent, border: 'none', color: '#fff', borderRadius: '50%', width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, padding: 0 }}>
+                    {playingId === clip.id ? <Pause size={13} /> : <Play size={13} />}
+                  </button>
+                  <input
+                    value={clip.name || ''}
+                    onChange={(e) => onRename(clip.id, e.target.value)}
+                    placeholder="Voice note"
+                    style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontSize: 12, color: '#fff', padding: 0 }}
+                  />
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>{formatDuration(clip.duration)}</span>
+                  <button onClick={() => onDelete(clip.id)} aria-label="Delete voice note" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', padding: 0, flexShrink: 0 }}>
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });
