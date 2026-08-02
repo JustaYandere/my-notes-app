@@ -77,7 +77,18 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     let cancelled = false;
     (async () => {
       setSyncStatus?.('syncing');
-      const { data, error } = await supabase.from('notes').select('*').eq('user_id', syncUser.id);
+      // A cold-started project or a brief network blip can make the very
+      // first request after opening the app fail (e.g. a statement timeout
+      // with nothing actually wrong on the data side) — retry a couple of
+      // times with backoff before surfacing an error, instead of leaving
+      // sync stuck until the user manually reloads.
+      let data, error;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 2000));
+        if (cancelled) return;
+        ({ data, error } = await supabase.from('notes').select('*').eq('user_id', syncUser.id));
+        if (!error) break;
+      }
       if (cancelled) return;
       if (error) {
         console.error('Sync pull failed:', error);
