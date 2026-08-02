@@ -1577,12 +1577,12 @@ export default function NotesApp() {
               el.focus();
               el.selectionStart = el.selectionEnd = el.value.length;
             }}
-            style={mode === 'both' ? { flex: '4 1 0%', minHeight: 0, overflowY: 'auto', ...ruledBg } : { flex: '1 1 auto', minHeight: 120, ...ruledBg }}
+            style={mode === 'both' ? { flex: '0 1 auto', maxHeight: '45%', minHeight: 60, overflowY: 'auto', ...ruledBg } : { flex: '1 1 auto', minHeight: 120, ...ruledBg }}
           >
             <textarea
-              ref={(el) => { textareaRefs.current[note.id] = el; if (el && mode !== 'both') autoGrowTextarea(el); }}
+              ref={(el) => { textareaRefs.current[note.id] = el; if (el) autoGrowTextarea(el); }}
               value={draftBody}
-              onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); if (mode !== 'both') autoGrowAndScrollTextarea(e.target); }}
+              onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); autoGrowAndScrollTextarea(e.target); }}
               onPaste={(e) => pasteImageFromClipboard(e, note)}
               onBlur={() => {
                 if (autoMoveCompleted) {
@@ -1593,7 +1593,7 @@ export default function NotesApp() {
               placeholder="Write something..."
               spellCheck={true}
               style={{
-                width: '100%', height: mode === 'both' ? '100%' : 'auto', minHeight: mode === 'both' ? '100%' : 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: mode === 'both' ? 'auto' : 'hidden',
+                width: '100%', height: 'auto', minHeight: mode === 'both' ? 60 : 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: 'hidden',
                 fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0,
               }}
             />
