@@ -668,7 +668,7 @@ export default function NotesApp() {
     }
     const savedNote = updatedNotes.find((n) => n.id === editingNote.id);
     if (savedNote) {
-      setPreEditSnapshot({ id: savedNote.id, title: savedNote.title, body: savedNote.body, checklist: savedNote.checklist, color: savedNote.color, mode: savedNote.mode, images: savedNote.images, voiceNotes: savedNote.voiceNotes });
+      setPreEditSnapshot({ id: savedNote.id, title: savedNote.title, body: savedNote.body, checklist: savedNote.checklist, color: savedNote.color, mode: savedNote.mode, images: savedNote.images, voiceNotes: savedNote.voiceNotes, tags: savedNote.tags });
     }
   }
 
@@ -730,7 +730,7 @@ export default function NotesApp() {
     const resolvedMode = mode || 'note';
     setNotes((prev) => [{ id, title: '', body: '', mode: resolvedMode, checklist: [], pinned: false, hidden: false, tags: [], voiceNotes: [], images: [], color: resolvedColor, createdAt: now, updatedAt: now }, ...prev]);
     setEditingId(id);
-    setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode, images: [], voiceNotes: [] });
+    setPreEditSnapshot({ id, title: '', body: '', checklist: [], color: resolvedColor, mode: resolvedMode, images: [], voiceNotes: [], tags: [] });
     editHistoryPushed.current = false;
     setOpenFolder(null);
     setExpandedTagKey(null);
@@ -776,7 +776,7 @@ export default function NotesApp() {
     };
     setNotes((prev) => (prev.some((n) => n.id === localId) ? prev.map((n) => (n.id === localId ? injected : n)) : [injected, ...prev]));
     setEditingId(localId);
-    setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes });
+    setPreEditSnapshot({ id: localId, title: injected.title, body: injected.body, checklist: injected.checklist, color: injected.color, mode: injected.mode, images: injected.images, voiceNotes: injected.voiceNotes, tags: injected.tags });
     editHistoryPushed.current = false;
     setOpenFolder(null);
     setExpandedTagKey(null);
@@ -786,7 +786,7 @@ export default function NotesApp() {
   function updateNote(id, patch) { setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n))); }
   function startEditing(note) {
     setEditingId(note.id);
-    setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes });
+    setPreEditSnapshot({ id: note.id, title: note.title, body: note.body, checklist: note.checklist, color: note.color, mode: note.mode, images: note.images, voiceNotes: note.voiceNotes, tags: note.tags });
     editHistoryPushed.current = false;
     setOpenFolder(null);
     setExpandedTagKey(null);
@@ -802,7 +802,8 @@ export default function NotesApp() {
       editingNote.mode !== preEditSnapshot.mode ||
       JSON.stringify(editingNote.checklist) !== JSON.stringify(preEditSnapshot.checklist) ||
       JSON.stringify(editingNote.images || []) !== JSON.stringify(preEditSnapshot.images || []) ||
-      JSON.stringify(editingNote.voiceNotes || []) !== JSON.stringify(preEditSnapshot.voiceNotes || [])
+      JSON.stringify(editingNote.voiceNotes || []) !== JSON.stringify(preEditSnapshot.voiceNotes || []) ||
+      JSON.stringify(editingNote.tags || []) !== JSON.stringify(preEditSnapshot.tags || [])
     );
   }
   function requestClose() {
@@ -1549,7 +1550,7 @@ export default function NotesApp() {
             </button>
           </div>
         </div>
-        <div style={{ maxHeight: s(66), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
+        <div style={{ position: 'relative', maxHeight: s(66), padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', overflowY: 'auto' }}>
           {note.tags.map((tag) => {
             const tagKey = `${note.id}:${tag}`;
             const isExpanded = expandedTagKey === tagKey;
@@ -1581,27 +1582,27 @@ export default function NotesApp() {
             style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99` }}
           />
           {tagError && <span style={{ fontSize: 11, color: '#E8735F', flexShrink: 0 }}>{tagError}</span>}
+          {(() => {
+            const tagQuery = tagInput.trim().toLowerCase();
+            const tagSuggestions = tagQuery
+              ? allKnownTags.filter((t) => t.startsWith(tagQuery) && !note.tags.includes(t)).slice(0, 5)
+              : [];
+            if (tagSuggestions.length === 0) return null;
+            return (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, display: 'flex', gap: 6, flexWrap: 'wrap', padding: '6px 8px', marginTop: 2, background: elevated, border: borderStyle, borderRadius: 10, boxShadow: '0 8px 20px rgba(0,0,0,0.25)', zIndex: 5 }}>
+                {tagSuggestions.map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => { addTag(note, t); setTagInput(''); }}
+                    style={{ fontSize: 11, background: 'none', border: `1px dashed ${noteMuted}`, borderRadius: 999, padding: '3px 8px', color: noteMuted, cursor: 'pointer' }}
+                  >
+                    # {t}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </div>
-        {(() => {
-          const tagQuery = tagInput.trim().toLowerCase();
-          const tagSuggestions = tagQuery
-            ? allKnownTags.filter((t) => t.startsWith(tagQuery) && !note.tags.includes(t)).slice(0, 5)
-            : [];
-          if (tagSuggestions.length === 0) return null;
-          return (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', padding: '0 12px 8px' }}>
-              {tagSuggestions.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => { addTag(note, t); setTagInput(''); }}
-                  style={{ fontSize: 11, background: 'none', border: `1px dashed ${noteMuted}`, borderRadius: 999, padding: '3px 8px', color: noteMuted, cursor: 'pointer' }}
-                >
-                  # {t}
-                </button>
-              ))}
-            </div>
-          );
-        })()}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '0 12px 8px' }}>
           <button className="undo-redo-btn" onMouseDown={(e) => e.preventDefault()} onTouchStart={(e) => e.preventDefault()} onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo" style={{ background: 'none', border: 'none', color: past.length === 0 ? `${noteText}50` : noteText, cursor: past.length === 0 ? 'default' : 'pointer', display: 'flex', padding: 8 }}>
             <Undo2 size={17} />
