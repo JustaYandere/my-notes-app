@@ -27,6 +27,22 @@ function toCloudRowUpdate(note) {
   return rest;
 }
 
+// Retries a Supabase call a few times with backoff before giving up. A
+// "canceling statement due to statement timeout" error from Postgres is
+// usually a transient blip (cold-started project, brief contention) rather
+// than a real data problem — without a retry, autosave hits this on every
+// push it happens to catch mid-blip, which is why it can seem to show up
+// "randomly" throughout normal use rather than just on app open.
+async function withRetry(fn, attempts = 3) {
+  let result;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 2000));
+    result = await fn();
+    if (!result.error) return result;
+  }
+  return result;
+}
+
 function fromCloudRow(row, localId) {
   return {
     id: localId,
@@ -77,18 +93,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     let cancelled = false;
     (async () => {
       setSyncStatus?.('syncing');
-      // A cold-started project or a brief network blip can make the very
-      // first request after opening the app fail (e.g. a statement timeout
-      // with nothing actually wrong on the data side) — retry a couple of
-      // times with backoff before surfacing an error, instead of leaving
-      // sync stuck until the user manually reloads.
-      let data, error;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 2000));
-        if (cancelled) return;
-        ({ data, error } = await supabase.from('notes').select('*').eq('user_id', syncUser.id));
-        if (!error) break;
-      }
+      const { data, error } = await withRetry(() => supabase.from('notes').select('*').eq('user_id', syncUser.id));
       if (cancelled) return;
       if (error) {
         console.error('Sync pull failed:', error);
@@ -166,7 +171,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         // One batched delete instead of N concurrent ones — firing a delete
         // per row at once can exhaust the connection pool / pile up lock
         // contention and trip Postgres's statement_timeout.
-        if (cloudIdsToDelete.length > 0) supabase.from('notes').delete().in('id', cloudIdsToDelete);
+        if (cloudIdsToDelete.length > 0) withRetry(() => supabase.from('notes').delete().in('id', cloudIdsToDelete));
       }
 
       pulledForUserRef.current = syncUser.id;
@@ -204,7 +209,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       // Owned notes can all go up in a single bulk upsert instead of one
       // request per note — much faster for an initial sync of many notes.
       if (mine.length > 0) {
-        const { error } = await supabase.from('notes').upsert(mine.map((n) => toCloudRow(n, syncUser.id)));
+        const { error } = await withRetry(() => supabase.from('notes').upsert(mine.map((n) => toCloudRow(n, syncUser.id))));
         if (error) {
           console.error('Sync push failed:', error);
           hadError = true;
@@ -220,7 +225,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       // never touch id/user_id, or I'd hijack ownership of their note.
       for (const note of shared) {
         if (!syncUserRef.current) break;
-        const { error } = await supabase.from('notes').update(toCloudRowUpdate(note)).eq('id', note.cloudId);
+        const { error } = await withRetry(() => supabase.from('notes').update(toCloudRowUpdate(note)).eq('id', note.cloudId));
         if (error) {
           console.error('Sync push failed:', error);
           hadError = true;
@@ -267,9 +272,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   }, [syncUser]);
 
   return {
-    deleteCloudNote: async (cloudId) => { if (supabaseEnabled && cloudId) await supabase.from('notes').delete().eq('id', cloudId); },
+    deleteCloudNote: async (cloudId) => { if (supabaseEnabled && cloudId) await withRetry(() => supabase.from('notes').delete().eq('id', cloudId)); },
     // Batched version for deleting many rows at once (e.g. emptying Trash,
     // cleaning up duplicates) — a single request instead of one per row.
-    deleteCloudNotes: async (cloudIds) => { if (supabaseEnabled && cloudIds?.length) await supabase.from('notes').delete().in('id', cloudIds); },
+    deleteCloudNotes: async (cloudIds) => { if (supabaseEnabled && cloudIds?.length) await withRetry(() => supabase.from('notes').delete().in('id', cloudIds)); },
   };
 }
