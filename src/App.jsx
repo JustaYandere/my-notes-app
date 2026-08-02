@@ -1149,7 +1149,6 @@ export default function NotesApp() {
   function bulkHide() {
     pushHistory();
     setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, hidden: true } : n)));
-    clearSelection();
   }
   function bulkSetColor(colorId) {
     pushHistory();
@@ -1160,9 +1159,9 @@ export default function NotesApp() {
     pushHistory();
     const shouldPin = selectedNoteIds.some((id) => !notes.find((n) => n.id === id)?.pinned);
     setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, pinned: shouldPin } : n)));
-    clearSelection();
-    // Pinning reorders the list and closes the selection toolbar in the same
-    // instant, which without any confirmation can read as "nothing happened."
+    setBulkMoreOpen(false);
+    // Pinning reorders the list, which without any confirmation can read as
+    // "nothing happened" since the selection stays but the notes move.
     setActionToast(shouldPin ? 'Pinned' : 'Unpinned');
     setTimeout(() => setActionToast(''), 1400);
   }
@@ -1189,7 +1188,7 @@ export default function NotesApp() {
     const { error } = await supabase.from('note_shares').upsert(rows, { onConflict: 'note_id,shared_with_id' });
     if (error) { setBulkShareStatus('Could not share — try again.'); return; }
     setBulkSharePickerOpen(false);
-    clearSelection();
+    setBulkMoreOpen(false);
   }
   function moveToTrash(id) {
     if (!window.confirm('Move this note to Trash?')) return;
