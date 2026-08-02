@@ -384,6 +384,17 @@ export default function NotesApp() {
         setSettingsSection(null);
       } else if (settingsOpen) closeSettings();
       else if (editingId) {
+        // If a text field is focused (keyboard likely open), the first back
+        // press should just dismiss the keyboard — matching normal Android
+        // behavior — not close the note. Re-push the entry we just popped
+        // so the note stays open; the next back press actually closes it.
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active.blur) {
+          active.blur();
+          window.history.pushState({ layer: 'note' }, '');
+          requestAnimationFrame(() => { suppressBackNav.current = false; });
+          return;
+        }
         const didChange = noteChangedSincePreEdit();
         if (confirmOnClose && editingNote && didChange) {
           // Re-push the entry we just popped so app state stays consistent
@@ -1592,7 +1603,9 @@ export default function NotesApp() {
       <div className="app-shell" style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, maxWidth: 720, minWidth: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flex: 1, maxWidth: 720, minWidth: 0 }}>
+          <span style={{ fontSize: 10, color: muted, opacity: 0.6 }}>v{__BUILD_ID__}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
               <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
                 <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: muted }} />
@@ -1617,6 +1630,7 @@ export default function NotesApp() {
             <button onClick={() => setSettingsOpen(true)} aria-label="Settings" title={syncUser ? `Settings — signed in as ${syncUser.email}` : 'Settings'} style={toolbarBtnStyle(false)}>
               <Settings size={16} />
             </button>
+          </div>
           </div>
         </div>
 
