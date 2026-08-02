@@ -81,7 +81,6 @@ export default function NotesApp() {
   const [noteSizeIdx, setNoteSizeIdx] = useState(1);
   const [textSizeIdx, setTextSizeIdx] = useState(1);
   const [defaultColor, setDefaultColor] = useState('random');
-  const [confirmDelete, setConfirmDelete] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
   const [autoMoveCompleted, setAutoMoveCompleted] = useState(false);
   const [fontChoice, setFontChoice] = useState('classic');
@@ -150,6 +149,7 @@ export default function NotesApp() {
   const [expandedTagKey, setExpandedTagKey] = useState(null);
   const [tagInput, setTagInput] = useState('');
   const [cleanupStatus, setCleanupStatus] = useState('');
+  const [actionToast, setActionToast] = useState('');
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
@@ -363,7 +363,6 @@ export default function NotesApp() {
       if (typeof savedSettings.noteSizeIdx === 'number') setNoteSizeIdx(savedSettings.noteSizeIdx);
       if (typeof savedSettings.textSizeIdx === 'number') setTextSizeIdx(savedSettings.textSizeIdx);
       if (savedSettings.defaultColor) setDefaultColor(savedSettings.defaultColor);
-      if (typeof savedSettings.confirmDelete === 'boolean') setConfirmDelete(savedSettings.confirmDelete);
       if (typeof savedSettings.autoSave === 'boolean') setAutoSave(savedSettings.autoSave);
       if (typeof savedSettings.autoMoveCompleted === 'boolean') setAutoMoveCompleted(savedSettings.autoMoveCompleted);
       if (savedSettings.fontChoice && FONT_OPTIONS[savedSettings.fontChoice]) setFontChoice(savedSettings.fontChoice);
@@ -383,8 +382,8 @@ export default function NotesApp() {
   }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
-    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
-  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
+    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
+  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
 
   useEffect(() => {
     saveLocal(PIN_LOCKOUT_KEY, { failCount: pinFailCount, lockUntil: pinLockUntil });
@@ -392,14 +391,28 @@ export default function NotesApp() {
 
   useEffect(() => {
     if (!hydrated) return;
+    // Installed Android PWAs generally reject the plain `new Notification()`
+    // constructor outright (it's desktop/browser-tab-only in practice) —
+    // notifications there have to go through the service worker's
+    // showNotification(), which vite-plugin-pwa already registers for us.
+    async function fireNotification(title, body) {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg?.showNotification) { await reg.showNotification(title, { body }); return; }
+        } catch {
+          // fall through to the direct constructor below
+        }
+      }
+      try { new Notification(title, { body }); } catch { /* unsupported in this context */ }
+    }
     function checkReminders() {
       const now = Date.now();
       const due = notes.filter((n) => n.reminderAt && !n.reminderNotified && n.reminderAt <= now && !n.deletedAt);
       if (due.length === 0) return;
       setNotes((prev) => prev.map((n) => (due.some((d) => d.id === n.id) ? { ...n, reminderNotified: true } : n)));
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        due.forEach((n) => new Notification(n.title || 'Reminder', { body: previewText(n.body) || 'Note reminder' }));
-      }
+      due.forEach((n) => fireNotification(n.title || 'Reminder', previewText(n.body) || 'Note reminder'));
     }
     checkReminders();
     const interval = setInterval(checkReminders, 30000);
@@ -1128,7 +1141,7 @@ export default function NotesApp() {
     startEditing(note);
   }
   function bulkDelete() {
-    if (confirmDelete && !window.confirm(`Move ${selectedNoteIds.length} note${selectedNoteIds.length === 1 ? '' : 's'} to Trash?`)) return;
+    if (!window.confirm(`Move ${selectedNoteIds.length} note${selectedNoteIds.length === 1 ? '' : 's'} to Trash?`)) return;
     pushHistory();
     setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, deletedAt: Date.now() } : n)));
     clearSelection();
@@ -1148,6 +1161,10 @@ export default function NotesApp() {
     const shouldPin = selectedNoteIds.some((id) => !notes.find((n) => n.id === id)?.pinned);
     setNotes((prev) => prev.map((n) => (selectedNoteIds.includes(n.id) ? { ...n, pinned: shouldPin } : n)));
     clearSelection();
+    // Pinning reorders the list and closes the selection toolbar in the same
+    // instant, which without any confirmation can read as "nothing happened."
+    setActionToast(shouldPin ? 'Pinned' : 'Unpinned');
+    setTimeout(() => setActionToast(''), 1400);
   }
   function bulkExport() {
     const selected = notes.filter((n) => selectedNoteIds.includes(n.id));
@@ -1175,7 +1192,7 @@ export default function NotesApp() {
     clearSelection();
   }
   function moveToTrash(id) {
-    if (confirmDelete && !window.confirm('Move this note to Trash?')) return;
+    if (!window.confirm('Move this note to Trash?')) return;
     pushHistory();
     setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, deletedAt: Date.now() } : n)));
     if (editingId === id) setEditingId(null);
@@ -1243,7 +1260,7 @@ export default function NotesApp() {
   }
 
   function exportAll() {
-    const payload = { version: 9, notes, customColors, customThemes, settings: { activeThemeId, modalTint, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, confirmDelete, autoSave, autoMoveCompleted, similarThreshold } };
+    const payload = { version: 9, notes, customColors, customThemes, settings: { activeThemeId, modalTint, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, similarThreshold } };
     downloadBlob(JSON.stringify(payload, null, 2), `notes-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
   }
   function triggerImport() { fileInputRef.current?.click(); }
@@ -1310,7 +1327,6 @@ export default function NotesApp() {
             if (typeof st.noteSizeIdx === 'number') setNoteSizeIdx(st.noteSizeIdx);
             if (typeof st.textSizeIdx === 'number') setTextSizeIdx(st.textSizeIdx);
             if (st.defaultColor) setDefaultColor(st.defaultColor);
-            if (typeof st.confirmDelete === 'boolean') setConfirmDelete(st.confirmDelete);
             if (typeof st.autoSave === 'boolean') setAutoSave(st.autoSave);
             if (typeof st.autoMoveCompleted === 'boolean') setAutoMoveCompleted(st.autoMoveCompleted);
             if (typeof st.similarThreshold === 'number') setSimilarThreshold(st.similarThreshold);
@@ -1717,7 +1733,9 @@ export default function NotesApp() {
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(16), color: headerText, padding: '6px 8px' }}
               />
             </div>
-            {note.pinned && <Pin size={16} style={{ color: headerText, opacity: 0.85, flexShrink: 0 }} />}
+            <button onClick={() => togglePin(note)} aria-label={note.pinned ? 'Unpin note' : 'Pin note'} title={note.pinned ? 'Unpin note' : 'Pin note'} style={{ background: 'none', border: 'none', color: headerText, opacity: note.pinned ? 0.85 : 0.5, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
+              <Pin size={16} />
+            </button>
             {ColorPickerButton(note, headerText)}
             <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
               {modeLetter}
@@ -1769,7 +1787,9 @@ export default function NotesApp() {
                 style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(18), color: panelText, padding: 0 }}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', flexShrink: 0 }}>
-                {note.pinned && <Pin size={15} style={{ color: panelText, opacity: 0.7 }} />}
+                <button onClick={() => togglePin(note)} aria-label={note.pinned ? 'Unpin note' : 'Pin note'} title={note.pinned ? 'Unpin note' : 'Pin note'} style={{ background: 'none', border: 'none', color: panelText, opacity: note.pinned ? 0.7 : 0.4, cursor: 'pointer', display: 'flex', padding: 4 }}>
+                  <Pin size={15} />
+                </button>
                 {ColorPickerButton(note, panelText)}
                 <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
                   {modeLetter}
@@ -2077,12 +2097,12 @@ export default function NotesApp() {
       )}
 
       {selectedNoteIds.length > 0 && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: elevated, borderTop: borderStyle, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 14, zIndex: 40, boxShadow: '0 -4px 14px rgba(0,0,0,0.15)' }}>
-          <button onClick={clearSelection} aria-label="Cancel selection" title="Cancel selection" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><X size={20} /></button>
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: elevated, borderTop: borderStyle, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 22, zIndex: 40, boxShadow: '0 -4px 14px rgba(0,0,0,0.15)' }}>
+          <button onClick={clearSelection} aria-label="Cancel selection" title="Cancel selection" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><X size={22} /></button>
           <span style={{ fontSize: 14, color: text, fontWeight: 600, flexShrink: 0 }}>{selectedNoteIds.length} selected</span>
           <div style={{ flex: 1 }} />
           <div style={{ position: 'relative' }}>
-            <button onClick={() => setBulkColorPickerOpen((v) => !v)} aria-label="Set color" title="Set color" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Paintbrush size={20} /></button>
+            <button onClick={() => setBulkColorPickerOpen((v) => !v)} aria-label="Set color" title="Set color" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Paintbrush size={22} /></button>
             {bulkColorPickerOpen && (
               <>
                 <div onClick={() => setBulkColorPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
@@ -2094,8 +2114,9 @@ export default function NotesApp() {
               </>
             )}
           </div>
+          <button onClick={bulkDelete} aria-label="Delete notes" title="Delete notes" style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={22} /></button>
           <div style={{ position: 'relative' }}>
-            <button onClick={() => setBulkMoreOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><MoreVertical size={20} /></button>
+            <button onClick={() => setBulkMoreOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><MoreVertical size={22} /></button>
             {bulkMoreOpen && (
               <>
                 <div onClick={() => setBulkMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
@@ -2126,13 +2147,12 @@ export default function NotesApp() {
               </div>
             </>
           )}
-          <button onClick={bulkDelete} aria-label="Delete notes" title="Delete notes" style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', display: 'flex', padding: 4 }}><Trash2 size={20} /></button>
         </div>
       )}
 
-      {(backSaveToast || justSaved) && (
+      {(backSaveToast || justSaved || actionToast) && (
         <div style={{ position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)', background: '#2f2f2f', color: '#fff', padding: '8px 18px', borderRadius: 999, fontSize: 13, fontWeight: 600, zIndex: 200, boxShadow: '0 4px 14px rgba(0,0,0,0.35)', pointerEvents: 'none' }}>
-          Saved
+          {actionToast || 'Saved'}
         </div>
       )}
 
@@ -2453,11 +2473,6 @@ export default function NotesApp() {
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
                   <input type="checkbox" checked={confirmOnClose} onChange={(e) => setConfirmOnClose(e.target.checked)} />
                   Ask to save before closing an edited note
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={confirmDelete} onChange={(e) => setConfirmDelete(e.target.checked)} />
-                  Ask for confirmation before moving a note to Trash
                 </label>
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 8, cursor: 'pointer' }}>
