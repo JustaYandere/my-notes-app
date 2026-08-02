@@ -150,6 +150,7 @@ export default function NotesApp() {
   const [tagInput, setTagInput] = useState('');
   const [cleanupStatus, setCleanupStatus] = useState('');
   const [actionToast, setActionToast] = useState('');
+  const [exiting, setExiting] = useState(false);
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
@@ -483,6 +484,17 @@ export default function NotesApp() {
   }, [editingId, fullScreenEditor]);
 
   useEffect(() => {
+    // If the exit didn't actually happen (Android just backgrounded the
+    // app instead of closing it, or canceled the gesture), don't leave the
+    // content permanently slid down — reset as soon as it's visible again.
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') setExiting(false);
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
+  useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     function onViewportResize() {
@@ -541,6 +553,13 @@ export default function NotesApp() {
       } else if (selectedTagFilters.length > 0) {
         tagFilterHistoryPushed.current = false;
         setSelectedTagFilters([]);
+      } else {
+        // Nothing left for us to close — this back press is the one that
+        // actually exits. The OS's own closing transition happens outside
+        // the page and can't be touched from here, but we can at least give
+        // our own content a deliberate slide-out instead of just vanishing
+        // mid-frame right as that transition starts.
+        setExiting(true);
       }
       requestAnimationFrame(() => { suppressBackNav.current = false; });
     }
@@ -1848,7 +1867,7 @@ export default function NotesApp() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: bodyFont, transition: 'background 0.3s, color 0.3s', position: 'relative', overflow: 'hidden' }}>
+    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: bodyFont, transition: 'background 0.3s, color 0.3s, transform 0.25s ease', position: 'relative', overflow: 'hidden', transform: exiting ? 'translateY(100%)' : 'translateY(0)' }}>
       <MainBackdrop effect={mainBgEffect} image={mainBgImage} particleColor={contrastText(bg)} />
       <AmbientAudio enabled={ambientSound === 'upload' && !!ambientSoundData} dataUrl={ambientSoundData} volume={ambientVolume} />
       <style>{`
