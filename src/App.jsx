@@ -270,6 +270,22 @@ export default function NotesApp() {
         [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => dupIdsToRemove.add(n.id));
       });
       if (dupIdsToRemove.size > 0) initialNotes = initialNotes.filter((n) => !dupIdsToRemove.has(n.id));
+      // Repair any notes that ended up sharing the same id (a historical
+      // bug, distinct from the content-duplicate check above — two notes
+      // with different content can still collide on id). Left alone, this
+      // makes `notes.find(n => n.id === editingId)` ambiguous: undo/redo
+      // restore different array snapshots, and whichever of the two
+      // colliding notes happens to come first in each one is what shows,
+      // making the editor appear to randomly jump between them.
+      const bootstrapNextId = Math.max(4, ...initialNotes.map((n) => (typeof n.id === 'number' ? n.id : 0) + 1));
+      let repairIdCounter = bootstrapNextId;
+      const seenNoteIds = new Set();
+      initialNotes = initialNotes.map((n) => {
+        if (typeof n.id !== 'number') return n;
+        if (seenNoteIds.has(n.id)) return { ...n, id: repairIdCounter++ };
+        seenNoteIds.add(n.id);
+        return n;
+      });
       // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
       setNotes(initialNotes);
       nextId.current = Math.max(4, ...initialNotes.map((n) => (n.id || 0) + 1));
