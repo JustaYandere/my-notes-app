@@ -188,6 +188,11 @@ export default function NotesApp() {
   const settingsSectionHistoryPushed = useRef(false);
   const tagFilterHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
+  // Set right before we call window.history.back()/go() ourselves (closing
+  // a note/settings/etc. via an on-screen button, not the hardware back
+  // button) so the popstate that call triggers isn't mistaken in onPopState
+  // for a real "nothing left open, this is the exit press" back press.
+  const selfTriggeredBackRef = useRef(false);
   const keyboardOpenRef = useRef(false);
   const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
 
@@ -553,6 +558,13 @@ export default function NotesApp() {
       } else if (selectedTagFilters.length > 0) {
         tagFilterHistoryPushed.current = false;
         setSelectedTagFilters([]);
+      } else if (selfTriggeredBackRef.current) {
+        // This popstate is the echo of a window.history.back()/go() we
+        // fired ourselves (e.g. tapping the note's own Back/X button), not
+        // an actual hardware/gesture back press — the state it was meant to
+        // close is already gone by the time we get here, so there's nothing
+        // left to match above. Don't treat it as the exit press.
+        selfTriggeredBackRef.current = false;
       } else {
         // Nothing left for us to close — this back press is the one that
         // actually exits. The OS's own closing transition happens outside
@@ -938,14 +950,14 @@ export default function NotesApp() {
     setPreEditSnapshot(null);
     if (noteHistoryPushed.current) {
       noteHistoryPushed.current = false;
-      if (!suppressBackNav.current) window.history.back();
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
     }
   }
   function closeConnectedNotes() {
     setConnectedNotesOpen(false);
     if (connectedNotesHistoryPushed.current) {
       connectedNotesHistoryPushed.current = false;
-      if (!suppressBackNav.current) window.history.back();
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
     }
   }
   function closeSettings() {
@@ -954,13 +966,13 @@ export default function NotesApp() {
     setSettingsSection(null);
     settingsSectionHistoryPushed.current = false;
     settingsHistoryPushed.current = false;
-    if (steps > 0 && !suppressBackNav.current) window.history.go(-steps);
+    if (steps > 0 && !suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.go(-steps); }
   }
   function backToSettingsHub() {
     setSettingsSection(null);
     if (settingsSectionHistoryPushed.current) {
       settingsSectionHistoryPushed.current = false;
-      if (!suppressBackNav.current) window.history.back();
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
     }
   }
   function openHiddenNotes() {
