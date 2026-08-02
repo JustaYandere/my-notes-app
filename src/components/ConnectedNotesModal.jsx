@@ -7,29 +7,30 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
   const [connections, setConnections] = useState([]);
   const [newNoteTarget, setNewNoteTarget] = useState('');
   const [filterConnection, setFilterConnection] = useState('all');
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!supabaseEnabled || !syncUser) return;
-    const { data: connRows } = await supabase
-      .from('connections')
-      .select('*')
-      .eq('status', 'accepted')
-      .or(`requester_id.eq.${syncUser.id},recipient_id.eq.${syncUser.id}`);
+    // The connections lookup and the two note_shares lookups don't depend on
+    // each other — firing them together instead of one-after-another cuts
+    // this from 5 sequential round trips down to 2 "waves", which is most of
+    // where the multi-second load time was coming from.
+    const [{ data: connRows }, { data: sharesIn }, { data: sharesOut }] = await Promise.all([
+      supabase.from('connections').select('*').eq('status', 'accepted').or(`requester_id.eq.${syncUser.id},recipient_id.eq.${syncUser.id}`),
+      supabase.from('note_shares').select('*').eq('shared_with_id', syncUser.id),
+      supabase.from('note_shares').select('*').eq('owner_id', syncUser.id),
+    ]);
     const otherIds = (connRows || []).map((c) => (c.requester_id === syncUser.id ? c.recipient_id : c.requester_id));
-    const { data: profileRows } = otherIds.length > 0
-      ? await supabase.from('profiles').select('id,email').in('id', otherIds)
-      : { data: [] };
+    const allShares = [...(sharesIn || []), ...(sharesOut || [])];
+    const noteIds = [...new Set(allShares.map((s) => s.note_id))];
+
+    const [{ data: profileRows }, { data: notesData }] = await Promise.all([
+      otherIds.length > 0 ? supabase.from('profiles').select('id,email').in('id', otherIds) : Promise.resolve({ data: [] }),
+      noteIds.length > 0 ? supabase.from('notes').select('*').in('id', noteIds) : Promise.resolve({ data: [] }),
+    ]);
     const emailMap = {};
     (profileRows || []).forEach((p) => { emailMap[p.id] = p.email; });
     setConnections(otherIds.map((id) => ({ id, email: emailMap[id] })));
-
-    const { data: sharesIn } = await supabase.from('note_shares').select('*').eq('shared_with_id', syncUser.id);
-    const { data: sharesOut } = await supabase.from('note_shares').select('*').eq('owner_id', syncUser.id);
-    const allShares = [...(sharesIn || []), ...(sharesOut || [])];
-    const noteIds = [...new Set(allShares.map((s) => s.note_id))];
-    const { data: notesData } = noteIds.length > 0
-      ? await supabase.from('notes').select('*').in('id', noteIds)
-      : { data: [] };
 
     const merged = allShares
       .map((s) => {
@@ -40,6 +41,7 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
       })
       .filter((x) => x.note);
     setItems(merged);
+    setLoading(false);
   }, [syncUser]);
 
   useEffect(() => {
@@ -81,7 +83,9 @@ export default function ConnectedNotesModal({ syncUser, onClose, onOpen, onCreat
               </div>
             )}
 
-            {items.length === 0 ? (
+            {loading ? (
+              <p style={{ fontSize: 13, color: muted }}>Loading…</p>
+            ) : items.length === 0 ? (
               <p style={{ fontSize: 13, color: muted }}>No connected notes yet — share one from a note's menu, or create one above.</p>
             ) : (
               <>

@@ -66,6 +66,7 @@ export default function NotesApp() {
   const [mainBgEffect, setMainBgEffect] = useState('color');
   const [mainBgImage, setMainBgImage] = useState(null);
   const [syncUser, setSyncUser] = useState(null);
+  const [sharedOutCloudIds, setSharedOutCloudIds] = useState(() => new Set());
   const [acceptsConnections, setAcceptsConnectionsState] = useState(true);
   const [syncStatus, setSyncStatus] = useState('idle');
   const [syncError, setSyncError] = useState('');
@@ -80,7 +81,7 @@ export default function NotesApp() {
   const [noteSizeIdx, setNoteSizeIdx] = useState(1);
   const [textSizeIdx, setTextSizeIdx] = useState(1);
   const [defaultColor, setDefaultColor] = useState('random');
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
   const [autoMoveCompleted, setAutoMoveCompleted] = useState(false);
   const [fontChoice, setFontChoice] = useState('classic');
@@ -441,6 +442,28 @@ export default function NotesApp() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
+  // Notes I've shared out with a connection should only show in Connected
+  // Notes, not clutter the main list too — track which of my cloud note ids
+  // currently have an active share so liveNotes can filter them out.
+  useEffect(() => {
+    if (!supabaseEnabled || !syncUser) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets local cache when auth state (an external system) changes, not render-driven
+      setSharedOutCloudIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    async function loadSharedOut() {
+      const { data } = await supabase.from('note_shares').select('note_id').eq('owner_id', syncUser.id);
+      if (!cancelled) setSharedOutCloudIds(new Set((data || []).map((r) => r.note_id)));
+    }
+    loadSharedOut();
+    const channel = supabase
+      .channel(`shares-owned-${syncUser.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'note_shares', filter: `owner_id=eq.${syncUser.id}` }, () => loadSharedOut())
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(channel); };
+  }, [syncUser]);
+
   useEffect(() => {
     document.body.style.overflow = editingId && !fullScreenEditor ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -557,7 +580,7 @@ export default function NotesApp() {
     }
   }, [selectedTagFilters]);
 
-  const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden && !n.remoteOwnerId), [notes]);
+  const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden && !n.remoteOwnerId && !(n.cloudId && sharedOutCloudIds.has(n.cloudId))), [notes, sharedOutCloudIds]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
   const trashedNotes = useMemo(() => notes.filter((n) => n.deletedAt).sort((a, b) => b.deletedAt - a.deletedAt), [notes]);
   const colorOrder = useMemo(() => customColors.reduce((acc, c, i) => ({ ...acc, [c.id]: i }), {}), [customColors]);
@@ -1425,8 +1448,6 @@ export default function NotesApp() {
 
           <button onClick={() => exportNoteAsText(note)} style={rowStyle}><FileText size={15} /> Export as text (.txt)</button>
           <button onClick={() => exportNoteAsMarkdown(note)} style={rowStyle}><FileText size={15} /> Export as Markdown (.md)</button>
-
-          <button onClick={() => { setSimilarFocusId(note.id); setSimilarOpen(true); setNoteMenuOpen(false); }} style={rowStyle}><GitCompare size={15} /> Similar notes</button>
 
           <button onClick={() => setMenuShareInfo((v) => !v)} style={rowStyle}><Share2 size={15} /> Share</button>
           {menuShareInfo && <ShareNotePicker note={note} syncUser={syncUser} text={text} muted={muted} />}
