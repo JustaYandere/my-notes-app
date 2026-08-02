@@ -1,3 +1,6 @@
+// Bumped by 0.01 with each pushed update so it's easy to confirm a deploy landed.
+export const APP_VERSION = '0.54';
+
 export const FONT_OPTIONS = {
   classic: { label: 'Classic', title: "'Fraunces', serif", body: "'Inter', sans-serif" },
   sans: { label: 'Clean Sans', title: "'Inter', sans-serif", body: "'Inter', sans-serif" },

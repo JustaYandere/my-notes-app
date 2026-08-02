@@ -13,7 +13,7 @@ import {
   wordsOf, jaccard, sortChecklistItems, reorderBodyByStrike, previewPlan,
 } from './utils/noteHelpers';
 import {
-  FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
+  APP_VERSION, FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
   NOTES_KEY, SETTINGS_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
 } from './constants';
 import ColorWheel from './components/ColorWheel';
@@ -519,7 +519,16 @@ export default function NotesApp() {
     return pairs.sort((x, y) => y.score - x.score);
   }, [liveNotes, similarThreshold]);
 
-  function pushHistory() { setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), notes]); setFuture([]); }
+  // Typed text lives in draftTitle/draftBody until a save commits it to the
+  // `notes` array — so any snapshot of "current state" taken for undo/redo
+  // must merge the live draft in, or it silently misses whatever's been
+  // typed but not yet saved.
+  function notesWithCurrentDraft() {
+    return editingId && editingNote
+      ? notes.map((n) => (n.id === editingId ? { ...n, title: draftTitle, body: draftBody } : n))
+      : notes;
+  }
+  function pushHistory() { setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), notesWithCurrentDraft()]); setFuture([]); }
   // Typing in the title/body was never captured by pushHistory (it only
   // covers structural actions like color/pin/checklist), so Undo appeared to
   // do nothing after just typing. This captures the state once, right before
@@ -527,14 +536,7 @@ export default function NotesApp() {
   // changes without pushing a snapshot on every single character.
   function ensureEditHistory() {
     if (!editHistoryPushed.current) {
-      // pushHistory() alone would snapshot the raw `notes` array, but typed
-      // text lives in draftTitle/draftBody until a save commits it — so the
-      // snapshot needs the current draft merged in, or undo has nothing
-      // different to restore and the editor visibly does nothing.
-      const snapshotNotes = editingNote
-        ? notes.map((n) => (n.id === editingNote.id ? { ...n, title: draftTitle, body: draftBody } : n))
-        : notes;
-      setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), snapshotNotes]);
+      setPast((p) => [...p.slice(-(MAX_HISTORY - 1)), notesWithCurrentDraft()]);
       setFuture([]);
       editHistoryPushed.current = true;
     }
@@ -550,7 +552,11 @@ export default function NotesApp() {
     setPast((p) => {
       if (p.length === 0) return p;
       const previous = p[p.length - 1];
-      setFuture((f) => [notes, ...f]);
+      // Same fix as pushHistory: the state being pushed onto `future` (so
+      // Redo can come back to it) must include the live draft too, or Redo
+      // later restores a snapshot missing whatever was typed just before
+      // Undo — which is exactly why Redo visibly did nothing.
+      setFuture((f) => [notesWithCurrentDraft(), ...f]);
       setNotes(previous);
       // The title/body sync effect only re-fires when editingNote's fields
       // actually differ from before — but if autosave hadn't committed the
@@ -568,7 +574,7 @@ export default function NotesApp() {
     setFuture((f) => {
       if (f.length === 0) return f;
       const next = f[0];
-      setPast((p) => [...p, notes]);
+      setPast((p) => [...p, notesWithCurrentDraft()]);
       setNotes(next);
       if (editingId) {
         const restored = next.find((n) => n.id === editingId);
@@ -1604,7 +1610,7 @@ export default function NotesApp() {
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flex: 1, maxWidth: 720, minWidth: 0 }}>
-          <span style={{ fontSize: 10, color: muted, opacity: 0.6 }}>v{__BUILD_ID__}</span>
+          <span style={{ fontSize: 10, color: muted, opacity: 0.6 }}>v{APP_VERSION}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {searchOpen || query ? (
               <div style={{ position: 'relative', flex: 1, minWidth: 140 }}>
