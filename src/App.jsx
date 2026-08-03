@@ -555,10 +555,6 @@ export default function NotesApp() {
           setPendingClose(true);
         } else {
           finalizeClose(false);
-          if (didChange) {
-            setBackSaveToast(true);
-            setTimeout(() => setBackSaveToast(false), 1500);
-          }
         }
       } else if (connectedNotesOpen) {
         connectedNotesHistoryPushed.current = false;
@@ -951,6 +947,12 @@ export default function NotesApp() {
     if (isEmpty) {
       if (editingNote?.cloudId) deleteCloudNote(editingNote.cloudId);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    } else if (noteId != null) {
+      // Autosave already means the note is saved by the time you close it —
+      // show a quick confirmation regardless of how you closed it (back
+      // button, the X, or Save & close) so it's never a silent no-op.
+      setBackSaveToast(true);
+      setTimeout(() => setBackSaveToast(false), 1500);
     }
     setEditingId(null);
     setNoteMenuOpen(false);
@@ -1567,7 +1569,8 @@ export default function NotesApp() {
             placeholder="Add item + Enter"
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(note); } }}
             spellCheck={true}
-            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: fz(15), color: noteMuted }}
+            className="note-editor-field"
+            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: fz(15), color: noteMuted, '--note-muted': noteMuted }}
           />
         </div>
       </div>
@@ -1597,9 +1600,10 @@ export default function NotesApp() {
           }}
           placeholder="Write something..."
           spellCheck={true}
+          className="note-editor-field"
           style={{
             width: '100%', height: 'auto', minHeight: 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: 'hidden',
-            fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0,
+            fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0, '--note-muted': noteMuted,
           }}
         />
       </div>
@@ -1685,7 +1689,8 @@ export default function NotesApp() {
                 setTagInput('');
               }
             }}
-            style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99` }}
+            className="note-editor-field"
+            style={{ flex: 1, minWidth: 100, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: 12, color: `${noteText}99`, '--note-muted': noteMuted }}
           />
           {tagError && <span style={{ fontSize: 11, color: '#E8735F', flexShrink: 0 }}>{tagError}</span>}
           {(() => {
@@ -1894,6 +1899,7 @@ export default function NotesApp() {
         textarea, input, select { font-family: inherit; }
         ::selection { background: #E8735F55; }
         ::placeholder { color: ${muted}; opacity: 1; }
+        .note-editor-field::placeholder { color: var(--note-muted, ${muted}); opacity: 1; }
 
         input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: ${borderColor}; outline: none; cursor: pointer; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #E8735F; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.35); cursor: pointer; }
