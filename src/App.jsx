@@ -33,6 +33,14 @@ import { supabase, supabaseEnabled } from './lib/supabaseClient';
 
 const VOICE_TAG = '__voice__';
 const IMAGE_TAG = '__image__';
+function contentTypeLabel(note) {
+  const hasText = (note.body || '').trim().length > 0;
+  const hasList = (note.checklist || []).length > 0;
+  if (hasText && hasList) return 'N L';
+  if (hasList) return 'L';
+  if (hasText) return 'N';
+  return null;
+}
 const PIN_LOCKOUT_KEY = 'makinote_pin_lockout_v1';
 const LOCKOUT_SCHEDULE = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
 function lockoutDurationFor(failCount) {
@@ -1032,7 +1040,7 @@ export default function NotesApp() {
     if (input) input.value = '';
   }
   function setNoteColor(note, colorId) { pushHistory(); updateNote(note.id, { color: colorId }); setColorPickerOpen(false); }
-  function toggleNoteMode(note) { pushHistory(); const order = ['note', 'list', 'both']; setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, mode: order[(order.indexOf(n.mode || 'note') + 1) % order.length], updatedAt: Date.now() } : n))); }
+  function toggleNoteMode(note) { pushHistory(); setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, mode: (n.mode || 'note') === 'list' ? 'note' : 'list', updatedAt: Date.now() } : n))); }
   function togglePin(note) { pushHistory(); updateNote(note.id, { pinned: !note.pinned }); setNoteMenuOpen(false); }
   function toDatetimeLocal(ts) {
     const d = new Date(ts - new Date().getTimezoneOffset() * 60000);
@@ -1537,7 +1545,7 @@ export default function NotesApp() {
       backgroundAttachment: 'local',
     };
     const checklistBlock = (
-      <div style={{ flex: mode === 'both' ? '1 1 0' : '1 1 0', minHeight: 0, overflowY: 'auto', borderTop: mode === 'both' ? `1px solid ${noteText}30` : 'none', paddingTop: mode === 'both' ? 8 : 0 }}>
+      <div style={{ flex: '1 1 0', minHeight: 0, overflowY: 'auto' }}>
         {(note.checklist || []).map((item) => (
           <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '5px 0', borderBottom: `1px solid ${colorHex}80` }}>
             <Checkbox checked={item.checked} onToggle={() => toggleChecklistItem(note, item.id)} accent={colorHex} mutedColor={noteMuted} />
@@ -1552,56 +1560,49 @@ export default function NotesApp() {
             </button>
           </div>
         ))}
-        {mode !== 'note' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${colorHex}80` }}>
-            <div style={{ width: 17, flexShrink: 0 }} />
-            <input
-              ref={(el) => (addItemRefs.current[note.id] = el)}
-              placeholder="Add item + Enter"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(note); } }}
-              spellCheck={true}
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: fz(15), color: noteMuted }}
-            />
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${colorHex}80` }}>
+          <div style={{ width: 17, flexShrink: 0 }} />
+          <input
+            ref={(el) => (addItemRefs.current[note.id] = el)}
+            placeholder="Add item + Enter"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addChecklistItem(note); } }}
+            spellCheck={true}
+            style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', padding: 0, fontSize: fz(15), color: noteMuted }}
+          />
+        </div>
       </div>
     );
+    if (mode === 'list') return checklistBlock;
     return (
-      <>
-        {mode !== 'list' && (
-          <div
-            onClick={(e) => {
-              if (e.target !== e.currentTarget) return;
-              const el = textareaRefs.current[note.id];
-              if (!el) return;
-              el.focus();
-              el.selectionStart = el.selectionEnd = el.value.length;
-            }}
-            style={mode === 'both' ? { flex: '0 1 auto', maxHeight: '45%', minHeight: 60, overflowY: 'auto', ...ruledBg } : { flex: '1 1 auto', minHeight: 120, ...ruledBg }}
-          >
-            <textarea
-              ref={(el) => { textareaRefs.current[note.id] = el; if (el) autoGrowTextarea(el); }}
-              value={draftBody}
-              onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); autoGrowAndScrollTextarea(e.target); }}
-              onPaste={(e) => pasteImageFromClipboard(e, note)}
-              onBlur={() => {
-                if (autoMoveCompleted) {
-                  const reordered = reorderBodyByStrike(draftBody);
-                  if (reordered !== draftBody) setDraftBody(reordered);
-                }
-              }}
-              placeholder="Write something..."
-              spellCheck={true}
-              style={{
-                width: '100%', height: 'auto', minHeight: mode === 'both' ? 60 : 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: 'hidden',
-                fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0,
-              }}
-            />
-          </div>
-        )}
-
-        {mode !== 'note' && checklistBlock}
-      </>
+      <div
+        onClick={(e) => {
+          if (e.target !== e.currentTarget) return;
+          const el = textareaRefs.current[note.id];
+          if (!el) return;
+          el.focus();
+          el.selectionStart = el.selectionEnd = el.value.length;
+        }}
+        style={{ flex: '1 1 auto', minHeight: 120, ...ruledBg }}
+      >
+        <textarea
+          ref={(el) => { textareaRefs.current[note.id] = el; if (el) autoGrowTextarea(el); }}
+          value={draftBody}
+          onChange={(e) => { ensureEditHistory(); setDraftBody(e.target.value); autoGrowAndScrollTextarea(e.target); }}
+          onPaste={(e) => pasteImageFromClipboard(e, note)}
+          onBlur={() => {
+            if (autoMoveCompleted) {
+              const reordered = reorderBodyByStrike(draftBody);
+              if (reordered !== draftBody) setDraftBody(reordered);
+            }
+          }}
+          placeholder="Write something..."
+          spellCheck={true}
+          style={{
+            width: '100%', height: 'auto', minHeight: 120, boxSizing: 'border-box', background: 'transparent', border: 'none', outline: 'none', resize: 'none', overflow: 'hidden',
+            fontSize: fz(15), lineHeight: '1.6', color: noteText, padding: 0,
+          }}
+        />
+      </div>
     );
   }
 
@@ -1740,7 +1741,7 @@ export default function NotesApp() {
     if (!editingNote) return null;
     const note = editingNote;
     const colorHex = colorHexOf(note.color);
-    const modeLetter = note.mode === 'list' ? 'L' : note.mode === 'both' ? 'B' : 'N';
+    const modeLetter = note.mode === 'list' ? 'L' : 'N';
 
     if (fullScreenEditor) {
       const headerText = contrastText(colorHex);
@@ -1879,7 +1880,7 @@ export default function NotesApp() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: bodyFont, transition: 'background 0.3s, color 0.3s, transform 0.25s ease', position: 'relative', overflow: 'hidden', transform: exiting ? 'translateY(100%)' : 'translateY(0)' }}>
+    <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: bodyFont, transition: 'background 0.3s, color 0.3s, transform 0.25s ease', position: 'relative', overflow: 'hidden', transform: exiting ? 'translateY(100%)' : 'none' }}>
       <MainBackdrop effect={mainBgEffect} image={mainBgImage} particleColor={contrastText(bg)} />
       <AmbientAudio enabled={ambientSound === 'upload' && !!ambientSoundData} dataUrl={ambientSoundData} volume={ambientVolume} />
       <style>{`
@@ -2022,20 +2023,23 @@ export default function NotesApp() {
                         <Bell size={11} /> {formatReminder(note.reminderAt)}
                       </div>
                     )}
-                    {(note.voiceNotes?.length > 0 || note.images?.length > 0 || (note.tags && note.tags.length > 0)) && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                        {note.voiceNotes?.length > 0 && (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
-                            <Mic size={10} /> voice note
-                          </span>
-                        )}
-                        {note.images?.length > 0 && (
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
-                            <ImageIcon size={10} /> {note.images.length}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                      {contentTypeLabel(note) && (
+                        <span style={{ fontSize: fz(10), fontWeight: 700, color: `${noteText}80`, border: `1px solid ${noteText}40`, borderRadius: 4, padding: '1px 4px', flexShrink: 0, letterSpacing: 1 }}>
+                          {contentTypeLabel(note)}
+                        </span>
+                      )}
+                      {note.voiceNotes?.length > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                          <Mic size={10} /> voice note
+                        </span>
+                      )}
+                      {note.images?.length > 0 && (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: fz(11), color: `${noteText}90`, background: `${noteText}18`, borderRadius: 999, padding: '2px 7px', flexShrink: 0 }}>
+                          <ImageIcon size={10} /> {note.images.length}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -2074,6 +2078,11 @@ export default function NotesApp() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {note.pinned && <Pin size={13} style={{ opacity: 0.6, flexShrink: 0 }} />}
+                        {contentTypeLabel(note) && (
+                          <span style={{ fontSize: fz(10), fontWeight: 700, color: `${noteText}80`, border: `1px solid ${noteText}40`, borderRadius: 4, padding: '1px 4px', flexShrink: 0, letterSpacing: 1 }}>
+                            {contentTypeLabel(note)}
+                          </span>
+                        )}
                         {note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, maxWidth: '50%' }}>
@@ -2843,7 +2852,7 @@ export default function NotesApp() {
             </div>
             <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Type</label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-              {[{ v: 'note', l: 'Note' }, { v: 'list', l: 'List' }, { v: 'both', l: 'Both' }].map((opt) => (
+              {[{ v: 'note', l: 'Note' }, { v: 'list', l: 'List' }].map((opt) => (
                 <button key={opt.v} onClick={() => setPendingNoteMode(opt.v)} style={{ flex: 1, padding: '9px 8px', borderRadius: 10, border: pendingNoteMode === opt.v ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>{opt.l}</button>
               ))}
             </div>
