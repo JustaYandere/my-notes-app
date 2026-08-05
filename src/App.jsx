@@ -2,7 +2,7 @@ import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
   Search, Plus, Trash2, LayoutGrid, Rows3, Minus, PlusIcon,
   Settings, Download, Upload, X, Lock,
-  GitCompare, RotateCcw, Archive, Check, Undo2, Redo2, Save, ArrowLeft,
+  GitCompare, RotateCcw, Archive, Check, Undo2, Redo2, ArrowLeft,
   MoreVertical, Pin, EyeOff, Eye, FileText, Share2, Palette, Type, SlidersHorizontal, ChevronRight, Paintbrush, Square, Maximize2,
   CloudRain, Sparkles, Image as ImageIcon, Ban, Bell, BellOff, Mic, User, Users, Music, Folder,
 } from 'lucide-react';
@@ -547,15 +547,10 @@ export default function NotesApp() {
           requestAnimationFrame(() => { suppressBackNav.current = false; });
           return;
         }
-        const didChange = noteChangedSincePreEdit();
-        if (confirmOnClose && editingNote && didChange) {
-          // Re-push the entry we just popped so app state stays consistent
-          // while we ask — if they cancel, they're still "on" this note.
-          window.history.pushState({ layer: 'note' }, '');
-          setPendingClose(true);
-        } else {
-          finalizeClose(false);
-        }
+        // The hardware back button always just closes (autosave already
+        // covers it) — no "save changes?" prompt, regardless of the
+        // confirmOnClose setting (that still applies to the X/Back button).
+        finalizeClose(false);
       } else if (connectedNotesOpen) {
         connectedNotesHistoryPushed.current = false;
         setConnectedNotesOpen(false);
@@ -1778,9 +1773,6 @@ export default function NotesApp() {
             <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
               {modeLetter}
             </button>
-            <button onClick={() => finalizeClose(false)} aria-label="Save & close" title="Save & close" style={{ background: 'none', border: 'none', color: justSaved ? '#DFF3E4' : headerText, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
-              <Save size={20} />
-            </button>
             <button onClick={() => setNoteMenuOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: headerText, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
               <MoreVertical size={20} />
             </button>
@@ -1833,9 +1825,6 @@ export default function NotesApp() {
                 {ColorPickerButton(note, panelText)}
                 <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
                   {modeLetter}
-                </button>
-                <button onClick={() => finalizeClose(false)} aria-label="Save & close" title="Save & close" style={{ background: 'none', border: 'none', color: justSaved ? '#7FA671' : panelText, cursor: 'pointer', display: 'flex', padding: 4 }}>
-                  <Save size={20} />
                 </button>
                 <button onClick={() => setNoteMenuOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: panelText, cursor: 'pointer', display: 'flex', padding: 4 }}>
                   <MoreVertical size={20} />
