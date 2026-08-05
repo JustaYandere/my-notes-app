@@ -50,6 +50,25 @@ async function withRetry(fn, attempts = 3) {
   return result;
 }
 
+// Defends against a note's real content getting silently replaced by an
+// empty version arriving from a sync race (pull merge or realtime echo) —
+// a genuinely-cleared note goes through the app's own close-and-delete-if-
+// empty flow instead of staying present with blank fields, so a remote row
+// that's fully empty while the local note has real content is always more
+// likely a race than an intentional edit.
+function isBlankRow(row) {
+  return !(row.title || '').trim() && !(row.body || '').trim()
+    && (!row.checklist || row.checklist.length === 0)
+    && (!row.voice_notes || row.voice_notes.length === 0)
+    && (!row.images || row.images.length === 0);
+}
+function hasRealContent(note) {
+  return !!(note.title || '').trim() || !!(note.body || '').trim()
+    || (note.checklist || []).length > 0
+    || (note.voiceNotes || []).length > 0
+    || (note.images || []).length > 0;
+}
+
 function fromCloudRow(row, localId) {
   return {
     id: localId,
@@ -116,7 +135,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           const existing = byCloudId.get(row.id);
           const rowUpdatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
           if (existing) {
-            if (rowUpdatedAt > existing.updatedAt) {
+            if (rowUpdatedAt > existing.updatedAt && !(isBlankRow(row) && hasRealContent(existing))) {
               const updated = fromCloudRow(row, existing.id);
               merged = merged.map((n) => (n.id === existing.id ? updated : n));
               syncedRef.current[existing.id] = updated.updatedAt;
@@ -263,6 +282,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setNotes((prev) => {
           const existing = prev.find((n) => n.cloudId === row.id);
           if (existing) {
+            if (isBlankRow(row) && hasRealContent(existing)) return prev;
             const updated = fromCloudRow(row, existing.id);
             syncedRef.current[existing.id] = updated.updatedAt;
             return prev.map((n) => (n.id === existing.id ? updated : n));
