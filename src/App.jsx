@@ -2084,11 +2084,6 @@ export default function NotesApp() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {note.pinned && <Pin size={13} style={{ opacity: 0.6, flexShrink: 0 }} />}
-                        {contentTypeLabel(note) && (
-                          <span style={{ fontSize: fz(10), fontWeight: 700, color: `${noteText}80`, border: `1px solid ${noteText}40`, borderRadius: 4, padding: '1px 4px', flexShrink: 0, letterSpacing: 1 }}>
-                            {contentTypeLabel(note)}
-                          </span>
-                        )}
                         {note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, maxWidth: '50%' }}>
@@ -2110,6 +2105,11 @@ export default function NotesApp() {
                               </span>
                             )}
                           </div>
+                        )}
+                        {contentTypeLabel(note) && (
+                          <span style={{ fontSize: fz(10), fontWeight: 700, color: `${noteText}80`, border: `1px solid ${noteText}40`, borderRadius: 4, padding: '1px 4px', flexShrink: 0, letterSpacing: 1 }}>
+                            {contentTypeLabel(note)}
+                          </span>
                         )}
                         <span style={{ fontSize: fz(12), color: `${noteText}99`, whiteSpace: 'nowrap', flexShrink: 0 }}>{formatDate(note.updatedAt)}</span>
                       </div>
@@ -2718,7 +2718,7 @@ export default function NotesApp() {
       )}
 
       {trashOpen && (
-        <div onClick={() => setTrashOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
+        <div onClick={() => setTrashOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Trash</h2>
@@ -2770,7 +2770,7 @@ export default function NotesApp() {
       )}
 
       {hiddenOpen && (
-        <div onClick={() => setHiddenOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
+        <div onClick={() => setHiddenOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Hidden notes</h2>

@@ -37,7 +37,14 @@ async function withRetry(fn, attempts = 3) {
   let result;
   for (let attempt = 0; attempt < attempts; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 2000));
-    result = await fn();
+    try {
+      result = await fn();
+    } catch (err) {
+      // A genuine network failure (offline, DNS, CORS) throws a "Failed to
+      // fetch" TypeError instead of resolving to { data, error } like a
+      // Postgres-level error does — without this, those never got retried.
+      result = { data: null, error: err };
+    }
     if (!result.error) return result;
   }
   return result;
