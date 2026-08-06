@@ -547,10 +547,14 @@ export default function NotesApp() {
           requestAnimationFrame(() => { suppressBackNav.current = false; });
           return;
         }
-        // The hardware back button always just closes (autosave already
-        // covers it) — no "save changes?" prompt, regardless of the
-        // confirmOnClose setting (that still applies to the X/Back button).
-        finalizeClose(false);
+        if (confirmOnClose && editingNote && noteChangedSincePreEdit()) {
+          // Re-push the entry we just popped so app state stays consistent
+          // while we ask — if they cancel, they're still "on" this note.
+          window.history.pushState({ layer: 'note' }, '');
+          setPendingClose(true);
+        } else {
+          finalizeClose(false);
+        }
       } else if (connectedNotesOpen) {
         connectedNotesHistoryPushed.current = false;
         setConnectedNotesOpen(false);
