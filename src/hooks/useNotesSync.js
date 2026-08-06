@@ -188,8 +188,8 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError) return;
-    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-    pushTimerRef.current = setTimeout(async () => {
+
+    async function doPush() {
       if (!syncUserRef.current) return;
       const dirty = notes.filter((n) => n.cloudId && syncedRef.current[n.id] !== n.updatedAt);
       if (dirty.length === 0) return;
@@ -234,8 +234,30 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setSyncStatus?.(hadError ? 'error' : 'idle');
         setSyncError?.(hadError ? lastErrorMessage : '');
       }
-    }, 800);
-    return () => clearTimeout(pushTimerRef.current);
+    }
+
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(doPush, 800);
+
+    // Best-effort: if the tab is about to close, refresh, or go to the
+    // background (phone home button, app switcher), push immediately
+    // instead of waiting out the debounce. A change made right before any
+    // of those otherwise never reaches the cloud at all -- the debounce
+    // timer just gets torn down with the rest of the page, silently.
+    function flushOnHide() {
+      if (document.visibilityState === 'hidden') {
+        clearTimeout(pushTimerRef.current);
+        doPush();
+      }
+    }
+    document.addEventListener('visibilitychange', flushOnHide);
+    window.addEventListener('pagehide', flushOnHide);
+
+    return () => {
+      clearTimeout(pushTimerRef.current);
+      document.removeEventListener('visibilitychange', flushOnHide);
+      window.removeEventListener('pagehide', flushOnHide);
+    };
   }, [notes, syncUser, setSyncStatus, localSaveError]);
 
   useEffect(() => {

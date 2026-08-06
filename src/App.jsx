@@ -550,6 +550,19 @@ export default function NotesApp() {
   }, []);
 
   useEffect(() => {
+    // Refreshing/closing while a sync push is still in flight can lose the
+    // change entirely (see useNotesSync's flushOnHide, which tries to push
+    // immediately in this situation) — as a second layer, warn on desktop
+    // if the browser lets us. Mobile browsers largely ignore this, which is
+    // exactly what the visibilitychange-triggered flush is for instead.
+    function onBeforeUnload(e) {
+      if (syncStatus === 'syncing') { e.preventDefault(); e.returnValue = ''; }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [syncStatus]);
+
+  useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     function onViewportResize() {
@@ -1337,7 +1350,7 @@ export default function NotesApp() {
     setNotes((prev) => prev.filter((n) => !n.deletedAt));
   }
 
-  function cleanUpDuplicateNotes() {
+  async function cleanUpDuplicateNotes() {
     pushHistory();
     // Images/voice notes are part of the fingerprint too — see the matching
     // comment on the hydration-time dedupe for why (a text match alone
@@ -1382,9 +1395,17 @@ export default function NotesApp() {
       setCleanupStatus('No duplicate or empty notes found.');
       return;
     }
-    deleteCloudNotes(cloudIdsToDelete);
     setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
-    setCleanupStatus(`Removed ${idsToRemove.length} note${idsToRemove.length === 1 ? '' : 's'}. Undo will bring them back if this was wrong.`);
+    if (cloudIdsToDelete.length > 0) {
+      // Must actually finish before we tell the user it's done — this used
+      // to fire-and-forget, so refreshing right after clicking the button
+      // (a very natural thing to do) could leave the delete request never
+      // sent, and the "removed" duplicates would just come back on the next
+      // sync since the cloud never got the memo.
+      setCleanupStatus('Cleaning up…');
+      await deleteCloudNotes(cloudIdsToDelete);
+    }
+    setCleanupStatus(`Removed ${idsToRemove.length} note${idsToRemove.length === 1 ? '' : 's'}. Safe to refresh now — undo will bring them back if this was wrong.`);
   }
 
   function exportAll() {
