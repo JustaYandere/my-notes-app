@@ -1518,7 +1518,7 @@ export default function NotesApp() {
         {colorPickerOpen && (
           <>
             <div onClick={() => setColorPickerOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
-            <div style={{ position: 'absolute', top: '100%', left: 0, display: 'flex', flexWrap: 'wrap', gap: 6, width: 150, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: 8, zIndex: 2 }}>
+            <div style={{ position: 'absolute', top: '100%', right: 0, maxWidth: 'calc(100vw - 32px)', display: 'flex', flexWrap: 'wrap', gap: 6, width: 150, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: 8, zIndex: 2 }}>
               {customColors.map((c) => (
                 <button key={c.id} onClick={() => setNoteColor(note, c.id)} title={c.label} style={{ width: 22, height: 22, borderRadius: 7, background: c.hex, border: c.id === note.color ? `2px solid ${text}` : '2px solid transparent', cursor: 'pointer', padding: 0 }} />
               ))}
