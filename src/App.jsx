@@ -33,6 +33,7 @@ import { supabase, supabaseEnabled } from './lib/supabaseClient';
 
 const VOICE_TAG = '__voice__';
 const IMAGE_TAG = '__image__';
+
 // Buttons/menu items the user can hide via hold-to-hide (mobile) or
 // right-click (desktop). Also drives the "Hidden options" checklist in
 // Settings -> Other, so every hideable item needs a stable id + label here.
