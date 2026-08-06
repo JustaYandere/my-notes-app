@@ -178,6 +178,7 @@ export default function NotesApp() {
   const [cleanupStatus, setCleanupStatus] = useState('');
   const [actionToast, setActionToast] = useState('');
   const [exiting, setExiting] = useState(false);
+  const [localSaveError, setLocalSaveError] = useState(false);
   const [hiddenSettings, setHiddenSettings] = useState([]);
   const [hideConfirm, setHideConfirm] = useState(null); // { id, label, x, y }
   const holdToHideTimer = useRef(null);
@@ -427,7 +428,13 @@ export default function NotesApp() {
 
   useEffect(() => {
     if (!hydrated || !autoSave) return;
-    saveLocal(NOTES_KEY, notes);
+    // If this fails (most likely localStorage quota exceeded, e.g. from
+    // embedded images), whatever was last saved successfully stays on disk
+    // — the in-memory state the user sees can silently drift ahead of it.
+    // Surfacing this is what matters here; it doesn't fix the underlying
+    // quota problem (that needs less data or a different storage strategy).
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reflects the real result of a write to an external system (localStorage), not derived render state
+    setLocalSaveError(!saveLocal(NOTES_KEY, notes));
   }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
@@ -2018,6 +2025,12 @@ export default function NotesApp() {
       `}</style>
 
       <div className="app-shell" style={{ maxWidth: 1100, margin: '0 auto', padding: `32px 24px ${allTags.length > 0 ? 184 : 120}px`, position: 'relative', zIndex: 1 }}>
+        {localSaveError && (
+          <div style={{ background: '#E8735F', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Ban size={15} style={{ flexShrink: 0 }} />
+            Couldn't save your notes on this device — it may be low on storage. Recent changes (especially images) may not stick around after closing the app. Try removing large images or freeing up space.
+          </div>
+        )}
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 34, margin: 0, letterSpacing: '-0.01em' }}>Makinote</h1>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flex: 1, maxWidth: 720, minWidth: 0 }}>
