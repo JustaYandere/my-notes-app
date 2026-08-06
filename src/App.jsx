@@ -1769,6 +1769,7 @@ export default function NotesApp() {
                 onBlur={() => setTitleFocused(false)}
                 placeholder="Title"
                 spellCheck={true}
+                className="title-field"
                 style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(16), color: headerText, padding: '6px 8px' }}
               />
             </div>
@@ -1822,6 +1823,7 @@ export default function NotesApp() {
                 onKeyDown={(e) => titleKeyDown(e, note)}
                 placeholder="Title"
                 spellCheck={true}
+                className="title-field"
                 style={{ flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none', fontFamily: titleFont, fontWeight: 500, fontSize: fz(18), color: panelText, padding: 0 }}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, position: 'relative', flexShrink: 0 }}>
@@ -1897,6 +1899,7 @@ export default function NotesApp() {
         ::selection { background: #E8735F55; }
         ::placeholder { color: ${muted}; opacity: 1; }
         .note-editor-field::placeholder { color: var(--note-muted, ${muted}); opacity: 1; }
+        .title-field::placeholder { color: #555555; opacity: 1; }
 
         input[type=range] { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: ${borderColor}; outline: none; cursor: pointer; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #E8735F; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.35); cursor: pointer; }
