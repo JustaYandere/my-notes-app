@@ -290,10 +290,16 @@ export default function NotesApp() {
         return !isEmpty;
       });
       // Also collapse any notes that are exact-content duplicates of each
-      // other (e.g. from a past save/sync race), keeping the newest.
+      // other (e.g. from a past save/sync race), keeping the newest. Images
+      // and voice notes are part of the fingerprint too — a note isn't a
+      // true duplicate of another just because the text matches if one of
+      // them has an attachment the other doesn't (e.g. from an old sync bug
+      // that stripped an image off one copy of a note).
       const fingerprintOf = (n) => JSON.stringify([
         (n.title || '').trim(), (n.body || '').trim(), n.mode,
         (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
+        (n.images || []).map((im) => im.id),
+        (n.voiceNotes || []).map((v) => v.id),
       ]);
       const dupGroups = new Map();
       initialNotes
@@ -1326,9 +1332,14 @@ export default function NotesApp() {
 
   function cleanUpDuplicateNotes() {
     pushHistory();
+    // Images/voice notes are part of the fingerprint too — see the matching
+    // comment on the hydration-time dedupe for why (a text match alone
+    // isn't a true duplicate if one copy has an attachment the other lacks).
     const fingerprintOf = (n) => JSON.stringify([
       (n.title || '').trim(), (n.body || '').trim(), n.mode,
       (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
+      (n.images || []).map((im) => im.id),
+      (n.voiceNotes || []).map((v) => v.id),
     ]);
     const groups = new Map();
     notes
