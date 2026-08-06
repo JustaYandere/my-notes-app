@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
 import {
-  Search, Plus, Trash2, LayoutGrid, Rows3, Minus, PlusIcon,
+  Search, Plus, Trash2, LayoutGrid, Rows3, Grid2x2, Minus, PlusIcon,
   Settings, Download, Upload, X, Lock,
   GitCompare, RotateCcw, Archive, Check, Undo2, Redo2, ArrowLeft,
   MoreVertical, Pin, EyeOff, Eye, FileText, Share2, Palette, Type, SlidersHorizontal, ChevronRight, Paintbrush, Square, Maximize2,
@@ -285,6 +285,10 @@ export default function NotesApp() {
         [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => dupIdsToRemove.add(n.id));
       });
       if (dupIdsToRemove.size > 0) initialNotes = initialNotes.filter((n) => !dupIdsToRemove.has(n.id));
+      // Trim any note that already has more than the 4-tag cap (from before
+      // the cap existed) down to its first 4 tags, matching the limit new
+      // additions are held to.
+      initialNotes = initialNotes.map((n) => ((n.tags || []).length > 4 ? { ...n, tags: n.tags.slice(0, 4) } : n));
       // Repair any notes that ended up sharing the same id (a historical
       // bug, distinct from the content-duplicate check above — two notes
       // with different content can still collide on id). Left alone, this
@@ -1971,8 +1975,10 @@ export default function NotesApp() {
           <div style={{ color: muted, fontSize: 14, padding: '40px 0', textAlign: 'center' }}>{query ? `Nothing matches "${query}"` : 'No notes yet — tap + to start one'}</div>
         )}
 
-        {view === 'grid' ? (
-          <div style={{ columns: `${s(220)}px`, columnGap: 16 }}>
+        {view === 'grid' || view === 'tiles' ? (
+          <div style={view === 'tiles'
+            ? { display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${s(220)}px, 1fr))`, gap: 16 }
+            : { columns: `${s(220)}px`, columnGap: 16 }}>
             {filtered.map((note) => {
               const colorHex = colorHexOf(note.color);
               const noteText = text;
@@ -1981,7 +1987,8 @@ export default function NotesApp() {
                   key={note.id}
                   className="note-card"
                   style={{
-                    breakInside: 'avoid', marginBottom: 16, borderRadius: 14, overflow: 'hidden', display: 'flex',
+                    ...(view === 'tiles' ? { height: s(190) } : { breakInside: 'avoid', marginBottom: 16 }),
+                    borderRadius: 14, overflow: 'hidden', display: 'flex',
                     background: transparentCards ? `${elevated}40` : elevated, border: borderStyle,
                     boxShadow: dark ? '0 1px 2px rgba(0,0,0,0.3)' : '0 1px 2px rgba(0,0,0,0.06)', cursor: 'pointer', position: 'relative', color: noteText,
                     userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none',
@@ -2001,7 +2008,7 @@ export default function NotesApp() {
                       {selectedNoteIds.includes(note.id) && <Check size={13} color="#fff" />}
                     </div>
                   )}
-                  <div style={{ flex: 1, minWidth: 0, padding: `${s(16)}px ${s(16)}px ${s(12)}px`, paddingLeft: selectedNoteIds.length > 0 ? s(16) + 26 : s(16) }}>
+                  <div style={{ flex: 1, minWidth: 0, padding: `${s(16)}px ${s(16)}px ${s(12)}px`, paddingLeft: selectedNoteIds.length > 0 ? s(16) + 26 : s(16), overflow: view === 'tiles' ? 'hidden' : 'visible' }}>
                     {note.pinned && <Pin size={13} style={{ position: 'absolute', top: 10, right: 10, opacity: 0.6, color: noteText }} />}
                     <div style={{ fontFamily: titleFont, fontWeight: 500, fontSize: fz(17), marginBottom: 4, paddingRight: note.pinned ? 16 : 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.title || <span style={{ color: `${noteText}80` }}>Untitled</span>}</div>
                     {(() => {
@@ -2481,6 +2488,9 @@ export default function NotesApp() {
                     </button>
                     <button onClick={() => setView('list')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: view === 'list' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
                       <Rows3 size={14} /> List
+                    </button>
+                    <button onClick={() => setView('tiles')} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: view === 'tiles' ? '2px solid #E8735F' : borderStyle, background: bg, color: text, fontSize: 13, cursor: 'pointer' }}>
+                      <Grid2x2 size={14} /> Tiles
                     </button>
                   </div>
                 </div>
