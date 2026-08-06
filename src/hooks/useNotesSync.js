@@ -127,7 +127,6 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setSyncError?.(error.message || 'Could not load your cloud notes.');
         return;
       }
-      let mergedResult = [];
       setNotes((prev) => {
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
@@ -149,57 +148,18 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
             syncedRef.current[localId] = newNote.updatedAt;
           }
         });
-        mergedResult = merged;
         return merged;
       });
 
-      // Safety net: collapse any notes that ended up as exact-content
-      // duplicates (e.g. from a past sync race), keeping the newest.
-      const fingerprintOf = (n) => JSON.stringify([
-        (n.title || '').trim(), (n.body || '').trim(), n.mode,
-        (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
-      ]);
-      const groups = new Map();
-      mergedResult
-        .filter((n) => !n.deletedAt && !n.remoteOwnerId && ((n.title || '').trim() || (n.body || '').trim()))
-        .forEach((n) => {
-          const key = fingerprintOf(n);
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key).push(n);
-        });
-      const idsToRemove = [];
-      const cloudIdsToDelete = [];
-      groups.forEach((group) => {
-        if (group.length < 2) return;
-        [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => {
-          idsToRemove.push(n.id);
-          if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
-        });
-      });
-      // Also sweep out any empty notes pulled down from the cloud (e.g. left
-      // over from before auto-delete-on-close existed, or from another device).
-      mergedResult
-        .filter((n) => !n.deletedAt && !n.remoteOwnerId && idsToRemove.indexOf(n.id) === -1)
-        .forEach((n) => {
-          const isEmpty = !(n.title || '').trim() && !(n.body || '').trim()
-            && (!n.checklist || n.checklist.length === 0)
-            && (!n.voiceNotes || n.voiceNotes.length === 0)
-            && (!n.images || n.images.length === 0)
-            && (!n.tags || n.tags.length === 0);
-          if (isEmpty) {
-            idsToRemove.push(n.id);
-            if (n.cloudId) cloudIdsToDelete.push(n.cloudId);
-          }
-        });
-
-      if (idsToRemove.length > 0) {
-        setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
-        // One batched delete instead of N concurrent ones — firing a delete
-        // per row at once can exhaust the connection pool / pile up lock
-        // contention and trip Postgres's statement_timeout.
-        if (cloudIdsToDelete.length > 0) withRetry(() => supabase.from('notes').delete().in('id', cloudIdsToDelete));
-      }
-
+      // NOTE: this used to also auto-delete the losing side of a duplicate
+      // pair (and empty notes) straight from Supabase on every single pull,
+      // with no confirmation. A user hit a case where it kept finding a
+      // "duplicate" pair on every reload and permanently deleting from the
+      // cloud each time, with no way to know why or undo it. Disabled the
+      // automatic destructive part entirely — duplicate/empty cleanup is
+      // now only ever done via the explicit "Clean up duplicate & empty
+      // notes" button in Settings, which the user consciously triggers and
+      // which still goes through the same safe batched-delete path.
       pulledForUserRef.current = syncUser.id;
       setSyncStatus?.('idle');
       setSyncError?.('');
