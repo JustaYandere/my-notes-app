@@ -127,7 +127,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setSyncError?.(error.message || 'Could not load your cloud notes.');
         return;
       }
+      console.log(`[sync] pull: ${(data || []).length} cloud rows for this account`);
       setNotes((prev) => {
+        console.log(`[sync] pull merge starting: ${prev.length} local notes in memory before merge`, prev.map((n) => ({ id: n.id, cloudId: n.cloudId, title: n.title })));
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
         (data || []).forEach((row) => {
@@ -144,10 +146,12 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           } else {
             const localId = nextIdRef.current++;
             const newNote = fromCloudRow(row, localId);
+            console.log(`[sync] pull: cloud row "${newNote.title}" (cloudId ${row.id}) had no local match — adding as new local note ${localId}`);
             merged = [...merged, newNote];
             syncedRef.current[localId] = newNote.updatedAt;
           }
         });
+        console.log(`[sync] pull merge done: ${merged.length} local notes after merge`);
         return merged;
       });
 
@@ -181,7 +185,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   // the cloud every single time, which is worse than doing nothing.
   useEffect(() => {
     if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError) return;
-    if (notes.some((n) => !n.cloudId)) {
+    const missing = notes.filter((n) => !n.cloudId);
+    if (missing.length > 0) {
+      console.log(`[sync] assigning fresh cloudId to ${missing.length} note(s) that don't have one`, missing.map((n) => ({ id: n.id, title: n.title })));
       setNotes((prev) => prev.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() })));
     }
   }, [notes, syncUser, setNotes, localSaveError]);
@@ -193,6 +199,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       if (!syncUserRef.current) return;
       const dirty = notes.filter((n) => n.cloudId && syncedRef.current[n.id] !== n.updatedAt);
       if (dirty.length === 0) return;
+      console.log(`[sync] pushing ${dirty.length} dirty note(s)`, dirty.map((n) => ({ id: n.id, cloudId: n.cloudId, title: n.title, lastSyncedAt: syncedRef.current[n.id], updatedAt: n.updatedAt })));
       setSyncStatus?.('syncing');
       let hadError = false;
       let lastErrorMessage = '';
