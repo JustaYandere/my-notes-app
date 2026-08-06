@@ -33,6 +33,24 @@ import { supabase, supabaseEnabled } from './lib/supabaseClient';
 
 const VOICE_TAG = '__voice__';
 const IMAGE_TAG = '__image__';
+// Buttons/menu items the user can hide via hold-to-hide (mobile) or
+// right-click (desktop). Also drives the "Hidden options" checklist in
+// Settings -> Other, so every hideable item needs a stable id + label here.
+const HIDEABLE_ITEMS = [
+  { id: 'mode-toggle', label: 'List/Note mode switch (in a note)' },
+  { id: 'menu-pin', label: 'Pin/Unpin note (note menu)' },
+  { id: 'menu-hide', label: 'Hide note (note menu)' },
+  { id: 'menu-reminder', label: 'Set reminder (note menu)' },
+  { id: 'menu-export-txt', label: 'Export as text (note menu)' },
+  { id: 'menu-export-md', label: 'Export as Markdown (note menu)' },
+  { id: 'menu-share', label: 'Share (note menu)' },
+  { id: 'menu-delete', label: 'Delete (note menu)' },
+  { id: 'bulk-pin', label: 'Pin (selection menu)' },
+  { id: 'bulk-similar', label: 'Similar notes (selection menu)' },
+  { id: 'bulk-export', label: 'Export notes (selection menu)' },
+  { id: 'bulk-connected', label: 'Move to connected notes (selection menu)' },
+  { id: 'bulk-hide', label: 'Hide notes (selection menu)' },
+];
 function contentTypeLabel(note) {
   const hasText = (note.body || '').trim().length > 0;
   const hasList = (note.checklist || []).length > 0;
@@ -159,6 +177,10 @@ export default function NotesApp() {
   const [cleanupStatus, setCleanupStatus] = useState('');
   const [actionToast, setActionToast] = useState('');
   const [exiting, setExiting] = useState(false);
+  const [hiddenSettings, setHiddenSettings] = useState([]);
+  const [hideConfirm, setHideConfirm] = useState(null); // { id, label, x, y }
+  const holdToHideTimer = useRef(null);
+  const holdToHideFired = useRef(false);
 
   const [wheelHue, setWheelHue] = useState(200);
   const [wheelSat, setWheelSat] = useState(0.6);
@@ -195,6 +217,7 @@ export default function NotesApp() {
   const connectedNotesHistoryPushed = useRef(false);
   const settingsSectionHistoryPushed = useRef(false);
   const tagFilterHistoryPushed = useRef(false);
+  const newNoteSetupHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
   // Set right before we call window.history.back()/go() ourselves (closing
   // a note/settings/etc. via an on-screen button, not the hardware back
@@ -382,6 +405,7 @@ export default function NotesApp() {
       if (typeof savedSettings.textSizeIdx === 'number') setTextSizeIdx(savedSettings.textSizeIdx);
       if (savedSettings.defaultColor) setDefaultColor(savedSettings.defaultColor);
       if (typeof savedSettings.autoSave === 'boolean') setAutoSave(savedSettings.autoSave);
+      if (Array.isArray(savedSettings.hiddenSettings)) setHiddenSettings(savedSettings.hiddenSettings);
       if (typeof savedSettings.autoMoveCompleted === 'boolean') setAutoMoveCompleted(savedSettings.autoMoveCompleted);
       if (savedSettings.fontChoice && FONT_OPTIONS[savedSettings.fontChoice]) setFontChoice(savedSettings.fontChoice);
       if (typeof savedSettings.confirmOnClose === 'boolean') setConfirmOnClose(savedSettings.confirmOnClose);
@@ -400,8 +424,8 @@ export default function NotesApp() {
   }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
-    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin });
-  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hydrated]);
+    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings });
+  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings, hydrated]);
 
   useEffect(() => {
     saveLocal(PIN_LOCKOUT_KEY, { failCount: pinFailCount, lockUntil: pinLockUntil });
@@ -533,7 +557,10 @@ export default function NotesApp() {
         settingsSectionHistoryPushed.current = false;
         setSettingsSection(null);
       } else if (settingsOpen) closeSettings();
-      else if (editingId) {
+      else if (newNoteSetupOpen) {
+        newNoteSetupHistoryPushed.current = false;
+        setNewNoteSetupOpen(false);
+      } else if (editingId) {
         // If a text field is focused AND the on-screen keyboard is actually
         // showing, the first back press should just dismiss the keyboard —
         // matching normal Android behavior — not close the note. Re-push the
@@ -630,6 +657,15 @@ export default function NotesApp() {
       tagFilterHistoryPushed.current = false;
     }
   }, [selectedTagFilters]);
+
+  useEffect(() => {
+    if (newNoteSetupOpen && !newNoteSetupHistoryPushed.current) {
+      window.history.pushState({ layer: 'newNoteSetup' }, '');
+      newNoteSetupHistoryPushed.current = true;
+    } else if (!newNoteSetupOpen) {
+      newNoteSetupHistoryPushed.current = false;
+    }
+  }, [newNoteSetupOpen]);
 
   const liveNotes = useMemo(() => notes.filter((n) => !n.deletedAt && !n.hidden && !n.remoteOwnerId && !(n.cloudId && sharedOutCloudIds.has(n.cloudId))), [notes, sharedOutCloudIds]);
   const hiddenNotes = useMemo(() => notes.filter((n) => n.hidden && !n.deletedAt), [notes]);
@@ -973,6 +1009,13 @@ export default function NotesApp() {
       if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
     }
   }
+  function closeNewNoteSetup() {
+    setNewNoteSetupOpen(false);
+    if (newNoteSetupHistoryPushed.current) {
+      newNoteSetupHistoryPushed.current = false;
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
+    }
+  }
   function closeSettings() {
     const steps = (settingsSectionHistoryPushed.current ? 1 : 0) + (settingsHistoryPushed.current ? 1 : 0);
     setSettingsOpen(false);
@@ -1046,6 +1089,29 @@ export default function NotesApp() {
   }
   function setNoteColor(note, colorId) { pushHistory(); updateNote(note.id, { color: colorId }); setColorPickerOpen(false); }
   function toggleNoteMode(note) { pushHistory(); setNotes((prev) => prev.map((n) => (n.id === note.id ? { ...n, mode: (n.mode || 'note') === 'list' ? 'note' : 'list', updatedAt: Date.now() } : n))); }
+  function isSettingHidden(id) { return hiddenSettings.includes(id); }
+  // Spread onto any hideable button: hold (mobile) or right-click (desktop)
+  // pops a "Hide this?" confirm instead of running the button's own action.
+  // holdToHideFired suppresses the click that a touch/mouse release would
+  // otherwise also fire, the same way the note-card long-press guards its click.
+  function hideableProps(id, label, onClick) {
+    return {
+      onClick: () => {
+        if (holdToHideFired.current) { holdToHideFired.current = false; return; }
+        onClick();
+      },
+      onContextMenu: (e) => { e.preventDefault(); setHideConfirm({ id, label }); },
+      onPointerDown: () => {
+        holdToHideFired.current = false;
+        holdToHideTimer.current = setTimeout(() => {
+          holdToHideFired.current = true;
+          setHideConfirm({ id, label });
+        }, 550);
+      },
+      onPointerUp: () => { if (holdToHideTimer.current) clearTimeout(holdToHideTimer.current); },
+      onPointerLeave: () => { if (holdToHideTimer.current) clearTimeout(holdToHideTimer.current); },
+    };
+  }
   function togglePin(note) { pushHistory(); updateNote(note.id, { pinned: !note.pinned }); setNoteMenuOpen(false); }
   function toDatetimeLocal(ts) {
     const d = new Date(ts - new Date().getTimezoneOffset() * 60000);
@@ -1481,37 +1547,51 @@ export default function NotesApp() {
       <>
         <div onClick={() => setNoteMenuOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
         <div style={{ position: 'absolute', top: 34, right: 0, width: 230, maxHeight: 320, overflowY: 'auto', background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: 6, zIndex: 2 }}>
-          <button onClick={() => togglePin(note)} style={rowStyle}><Pin size={15} /> {note.pinned ? 'Unpin note' : 'Pin note'}</button>
-          <button onClick={() => hideNote(note)} style={rowStyle}><EyeOff size={15} /> Hide note</button>
+          {!isSettingHidden('menu-pin') && (
+            <button {...hideableProps('menu-pin', 'Pin/Unpin note', () => togglePin(note))} style={rowStyle}><Pin size={15} /> {note.pinned ? 'Unpin note' : 'Pin note'}</button>
+          )}
+          {!isSettingHidden('menu-hide') && (
+            <button {...hideableProps('menu-hide', 'Hide note', () => hideNote(note))} style={rowStyle}><EyeOff size={15} /> Hide note</button>
+          )}
 
-          <div style={{ borderTop: borderStyle, borderBottom: borderStyle, margin: '4px 0' }}>
-            <button onClick={() => setMenuReminderExpanded((v) => !v)} style={rowStyle}>
-              <Bell size={15} /> {note.reminderAt ? `Reminder: ${formatReminder(note.reminderAt)}` : 'Set reminder'}
-            </button>
-            {menuReminderExpanded && (
-              <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input
-                  type="datetime-local"
-                  defaultValue={note.reminderAt ? toDatetimeLocal(note.reminderAt) : ''}
-                  onChange={(e) => { if (e.target.value) setNoteReminder(note, new Date(e.target.value).getTime()); }}
-                  style={{ background: bg, color: text, border: borderStyle, borderRadius: 8, padding: '6px 8px', fontSize: 12, outline: 'none', colorScheme: dark ? 'dark' : 'light' }}
-                />
-                {note.reminderAt && (
-                  <button onClick={() => { clearNoteReminder(note); setMenuReminderExpanded(false); }} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, cursor: 'pointer', padding: 0, fontSize: 12 }}>
-                    <BellOff size={12} /> Clear reminder
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          {!isSettingHidden('menu-reminder') && (
+            <div style={{ borderTop: borderStyle, borderBottom: borderStyle, margin: '4px 0' }}>
+              <button {...hideableProps('menu-reminder', 'Set reminder', () => setMenuReminderExpanded((v) => !v))} style={rowStyle}>
+                <Bell size={15} /> {note.reminderAt ? `Reminder: ${formatReminder(note.reminderAt)}` : 'Set reminder'}
+              </button>
+              {menuReminderExpanded && (
+                <div style={{ padding: '4px 12px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <input
+                    type="datetime-local"
+                    defaultValue={note.reminderAt ? toDatetimeLocal(note.reminderAt) : ''}
+                    onChange={(e) => { if (e.target.value) setNoteReminder(note, new Date(e.target.value).getTime()); }}
+                    style={{ background: bg, color: text, border: borderStyle, borderRadius: 8, padding: '6px 8px', fontSize: 12, outline: 'none', colorScheme: dark ? 'dark' : 'light' }}
+                  />
+                  {note.reminderAt && (
+                    <button onClick={() => { clearNoteReminder(note); setMenuReminderExpanded(false); }} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: muted, cursor: 'pointer', padding: 0, fontSize: 12 }}>
+                      <BellOff size={12} /> Clear reminder
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
-          <button onClick={() => exportNoteAsText(note)} style={rowStyle}><FileText size={15} /> Export as text (.txt)</button>
-          <button onClick={() => exportNoteAsMarkdown(note)} style={rowStyle}><FileText size={15} /> Export as Markdown (.md)</button>
+          {!isSettingHidden('menu-export-txt') && (
+            <button {...hideableProps('menu-export-txt', 'Export as text', () => exportNoteAsText(note))} style={rowStyle}><FileText size={15} /> Export as text (.txt)</button>
+          )}
+          {!isSettingHidden('menu-export-md') && (
+            <button {...hideableProps('menu-export-md', 'Export as Markdown', () => exportNoteAsMarkdown(note))} style={rowStyle}><FileText size={15} /> Export as Markdown (.md)</button>
+          )}
 
-          <button onClick={() => setMenuShareInfo((v) => !v)} style={rowStyle}><Share2 size={15} /> Share</button>
+          {!isSettingHidden('menu-share') && (
+            <button {...hideableProps('menu-share', 'Share', () => setMenuShareInfo((v) => !v))} style={rowStyle}><Share2 size={15} /> Share</button>
+          )}
           {menuShareInfo && <ShareNotePicker note={note} syncUser={syncUser} text={text} muted={muted} />}
 
-          <button onClick={() => moveToTrash(note.id)} style={{ ...rowStyle, color: '#E8735F' }}><Trash2 size={15} /> Delete</button>
+          {!isSettingHidden('menu-delete') && (
+            <button {...hideableProps('menu-delete', 'Delete', () => moveToTrash(note.id))} style={{ ...rowStyle, color: '#E8735F' }}><Trash2 size={15} /> Delete</button>
+          )}
         </div>
       </>
     );
@@ -1779,9 +1859,11 @@ export default function NotesApp() {
               </button>
             )}
             {ColorPickerButton(note, headerText)}
-            <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
-              {modeLetter}
-            </button>
+            {!isSettingHidden('mode-toggle') && (
+              <button {...hideableProps('mode-toggle', 'List/Note mode switch', () => toggleNoteMode(note))} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${headerText}80`, borderRadius: 6, width: 24, height: 24, color: headerText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0, padding: 0 }}>
+                {modeLetter}
+              </button>
+            )}
             <button onClick={() => setNoteMenuOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: headerText, cursor: 'pointer', display: 'flex', padding: 4, flexShrink: 0 }}>
               <MoreVertical size={20} />
             </button>
@@ -1833,9 +1915,11 @@ export default function NotesApp() {
                   </button>
                 )}
                 {ColorPickerButton(note, panelText)}
-                <button onClick={() => toggleNoteMode(note)} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
-                  {modeLetter}
-                </button>
+                {!isSettingHidden('mode-toggle') && (
+                  <button {...hideableProps('mode-toggle', 'List/Note mode switch', () => toggleNoteMode(note))} aria-label="Switch List/Note mode" title="Switch List/Note mode" style={{ background: 'none', border: `1.5px solid ${panelText}60`, borderRadius: 6, width: 22, height: 22, color: panelText, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, padding: 0 }}>
+                    {modeLetter}
+                  </button>
+                )}
                 <button onClick={() => setNoteMenuOpen((v) => !v)} aria-label="More options" title="More options" style={{ background: 'none', border: 'none', color: panelText, cursor: 'pointer', display: 'flex', padding: 4 }}>
                   <MoreVertical size={20} />
                 </button>
@@ -2173,15 +2257,21 @@ export default function NotesApp() {
               <>
                 <div onClick={() => setBulkMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 1 }} />
                 <div style={{ position: 'absolute', bottom: '100%', right: 0, display: 'flex', flexDirection: 'column', width: 210, background: elevated, border: borderStyle, borderRadius: 12, boxShadow: '0 -8px 24px rgba(0,0,0,0.35)', padding: 6, zIndex: 2, marginBottom: 6 }}>
-                  <button onClick={bulkPin} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Pin size={15} /> {selectedNoteIds.every((id) => notes.find((n) => n.id === id)?.pinned) ? 'Unpin' : 'Pin'}</button>
-                  {selectedNoteIds.length === 1 && (
-                    <button onClick={() => { setSimilarFocusId(selectedNoteIds[0]); setSimilarOpen(true); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><GitCompare size={15} /> Similar notes</button>
+                  {!isSettingHidden('bulk-pin') && (
+                    <button {...hideableProps('bulk-pin', 'Pin (selection menu)', bulkPin)} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Pin size={15} /> {selectedNoteIds.every((id) => notes.find((n) => n.id === id)?.pinned) ? 'Unpin' : 'Pin'}</button>
                   )}
-                  <button onClick={() => { bulkExport(); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Download size={15} /> Export notes</button>
-                  {syncUser && (
-                    <button onClick={() => { openBulkSharePicker(); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Users size={15} /> Move to connected notes</button>
+                  {selectedNoteIds.length === 1 && !isSettingHidden('bulk-similar') && (
+                    <button {...hideableProps('bulk-similar', 'Similar notes (selection menu)', () => { setSimilarFocusId(selectedNoteIds[0]); setSimilarOpen(true); setBulkMoreOpen(false); })} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><GitCompare size={15} /> Similar notes</button>
                   )}
-                  <button onClick={() => { bulkHide(); setBulkMoreOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><EyeOff size={15} /> Hide notes</button>
+                  {!isSettingHidden('bulk-export') && (
+                    <button {...hideableProps('bulk-export', 'Export notes (selection menu)', () => { bulkExport(); setBulkMoreOpen(false); })} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Download size={15} /> Export notes</button>
+                  )}
+                  {syncUser && !isSettingHidden('bulk-connected') && (
+                    <button {...hideableProps('bulk-connected', 'Move to connected notes (selection menu)', () => { openBulkSharePicker(); setBulkMoreOpen(false); })} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><Users size={15} /> Move to connected notes</button>
+                  )}
+                  {!isSettingHidden('bulk-hide') && (
+                    <button {...hideableProps('bulk-hide', 'Hide notes (selection menu)', () => { bulkHide(); setBulkMoreOpen(false); })} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', color: text, cursor: 'pointer', padding: '9px 12px', fontSize: 14, textAlign: 'left', borderRadius: 8 }}><EyeOff size={15} /> Hide notes</button>
+                  )}
                 </div>
               </>
             )}
@@ -2199,6 +2289,23 @@ export default function NotesApp() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {hideConfirm && (
+        <div onClick={() => setHideConfirm(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 300 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: elevated, borderRadius: 14, padding: 20, width: '100%', maxWidth: 280, textAlign: 'center' }}>
+            <p style={{ fontSize: 14, color: text, margin: '0 0 16px' }}>Hide &quot;{hideConfirm.label}&quot;? You can bring it back later from Settings → Other.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                onClick={() => { setHiddenSettings((prev) => (prev.includes(hideConfirm.id) ? prev : [...prev, hideConfirm.id])); setHideConfirm(null); }}
+                style={{ background: '#E8735F', color: '#fff', border: 'none', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}
+              >
+                Hide
+              </button>
+              <button onClick={() => setHideConfirm(null)} style={{ background: 'none', color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2618,6 +2725,23 @@ export default function NotesApp() {
                   {cleanupStatus && <p style={{ fontSize: 12, color: muted, margin: '2px 0 0' }}>{cleanupStatus}</p>}
                 </div>
 
+                <div style={{ borderTop: borderStyle, paddingTop: 16, marginBottom: 16 }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Hidden options</label>
+                  <p style={{ fontSize: 12, color: muted, margin: '0 0 10px' }}>Hold (or right-click) any button in a note or selection menu to hide it. Uncheck here to bring one back.</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {HIDEABLE_ITEMS.map((item) => (
+                      <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={!isSettingHidden(item.id)}
+                          onChange={(e) => setHiddenSettings((prev) => (e.target.checked ? prev.filter((id) => id !== item.id) : (prev.includes(item.id) ? prev : [...prev, item.id])))}
+                        />
+                        {item.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Backup (notes, colors, settings)</label>
                   <button onClick={exportAll} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Export backup (.json)</button>
@@ -2850,7 +2974,7 @@ export default function NotesApp() {
       )}
 
       {newNoteSetupOpen && (
-        <div onClick={() => setNewNoteSetupOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
+        <div onClick={closeNewNoteSetup} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 340, background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 20, margin: '0 0 16px' }}>New note</h2>
             <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Color</label>
