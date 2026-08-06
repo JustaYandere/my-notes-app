@@ -94,7 +94,7 @@ function fromCloudRow(row, localId) {
 // Syncs local `notes` state with a Supabase `notes` table while a user is signed in:
 // pulls + merges existing cloud notes on sign-in, pushes local changes (debounced),
 // and listens for realtime changes from other devices.
-export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError }) {
+export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError }) {
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
   // cloud id -> when we last pushed it ourselves. Postgres sets updated_at
   // via a server-side trigger (its own clock), which never exactly matches
@@ -171,15 +171,23 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   // Assign a stable client-generated cloud id to any note that doesn't have one yet,
   // synchronously (no network round trip) so a reload/crash mid-sync can never cause
   // the same note to be inserted twice.
+  //
+  // Gated on localSaveError being false: assigning a cloudId only actually
+  // protects against a duplicate insert if it *stays* assigned once saved to
+  // disk. If local writes are silently failing (e.g. localStorage quota),
+  // the assignment made here never survives to the next reload — the note
+  // looks cloudId-less again, gets a *new* one, and gets pushed as a brand
+  // new row. Repeated every reload, that's a permanent duplicate added to
+  // the cloud every single time, which is worse than doing nothing.
   useEffect(() => {
-    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id) return;
+    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError) return;
     if (notes.some((n) => !n.cloudId)) {
       setNotes((prev) => prev.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() })));
     }
-  }, [notes, syncUser, setNotes]);
+  }, [notes, syncUser, setNotes, localSaveError]);
 
   useEffect(() => {
-    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id) return;
+    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError) return;
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
     pushTimerRef.current = setTimeout(async () => {
       if (!syncUserRef.current) return;
@@ -228,7 +236,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       }
     }, 800);
     return () => clearTimeout(pushTimerRef.current);
-  }, [notes, syncUser, setSyncStatus]);
+  }, [notes, syncUser, setSyncStatus, localSaveError]);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;

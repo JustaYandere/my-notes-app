@@ -227,7 +227,7 @@ export default function NotesApp() {
   // for a real "nothing left open, this is the exit press" back press.
   const selfTriggeredBackRef = useRef(false);
   const keyboardOpenRef = useRef(false);
-  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError });
+  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError, localSaveError });
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
