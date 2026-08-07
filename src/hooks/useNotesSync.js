@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 
 // Module-level, not per-hook-instance: if the app somehow ends up with more
@@ -11,6 +11,15 @@ import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 // singletons, this variable is shared across every instance, so only the
 // first pull for a given account actually runs.
 let pullInFlightForUserId = null;
+// If this module gets evaluated more than once (which would explain the
+// module-level guard above not working), every hook instance created from
+// a given evaluation of the module shares this same id, but a genuinely
+// separate module instance would have its own different one. Logged
+// alongside a per-hook-instance id and a timestamp to tell apart "same
+// instance re-entering" from "two truly separate instances" from "two
+// sequential but distinct runs."
+const moduleInstanceId = Math.random().toString(36).slice(2, 8);
+console.log(`[sync] useNotesSync module evaluated, instance ${moduleInstanceId}`);
 
 function toCloudRow(note, userId) {
   return {
@@ -106,6 +115,7 @@ function fromCloudRow(row, localId) {
 // pulls + merges existing cloud notes on sign-in, pushes local changes (debounced),
 // and listens for realtime changes from other devices.
 export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError }) {
+  const [hookInstanceId] = useState(() => Math.random().toString(36).slice(2, 8));
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
   // cloud id -> when we last pushed it ourselves. Postgres sets updated_at
   // via a server-side trigger (its own clock), which never exactly matches
@@ -127,8 +137,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
+    console.log(`[sync] pull effect firing, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)} pullInFlightForUserId=${pullInFlightForUserId}`);
     if (pullInFlightForUserId === syncUser.id) {
-      console.log('[sync] a pull is already in flight for this account elsewhere — skipping duplicate');
+      console.log(`[sync] a pull is already in flight for this account elsewhere — skipping duplicate, module=${moduleInstanceId} hook=${hookInstanceId}`);
       return;
     }
     pullInFlightForUserId = syncUser.id;
@@ -144,9 +155,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setSyncError?.(error.message || 'Could not load your cloud notes.');
         return;
       }
-      console.log(`[sync] pull: ${(data || []).length} cloud rows for this account`);
+      console.log(`[sync] pull: ${(data || []).length} cloud rows for this account, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)}`);
       setNotes((prev) => {
-        console.log(`[sync] pull merge starting: ${prev.length} local notes in memory before merge`, prev.map((n) => ({ id: n.id, cloudId: n.cloudId, title: n.title })));
+        console.log(`[sync] pull merge starting: ${prev.length} local notes in memory before merge, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)}`, prev.map((n) => ({ id: n.id, cloudId: n.cloudId, title: n.title })));
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
         (data || []).forEach((row) => {
