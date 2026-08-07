@@ -1,5 +1,13 @@
 export function loadLocal(key) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch { return null; } }
-export function saveLocal(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
+export function saveLocal(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (err) {
+    console.error(`[localStorage] save failed for "${key}":`, err.name, err.message);
+    return false;
+  }
+}
 export function formatDate(ts) {
   const d = new Date(ts);
   const now = new Date();
