@@ -279,13 +279,30 @@ export default function NotesApp() {
     const y = syncScrollYRef.current;
     const deadline = performance.now() + 1500;
     let rafId;
+    let cancelled = false;
+    // Any actual scroll input from the user means they're deliberately
+    // moving, not the browser silently clamping on its own -- back off
+    // immediately instead of fighting them for the rest of the window.
+    const stop = () => {
+      cancelled = true;
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('wheel', stop);
+      window.removeEventListener('touchmove', stop);
+      window.removeEventListener('keydown', stop);
+      window.removeEventListener('pointerdown', stop);
+    };
+    window.addEventListener('wheel', stop, { passive: true });
+    window.addEventListener('touchmove', stop, { passive: true });
+    window.addEventListener('keydown', stop);
+    window.addEventListener('pointerdown', stop);
     const tick = () => {
+      if (cancelled) return;
       if (window.scrollY !== y) window.scrollTo(window.scrollX, y);
       if (performance.now() < deadline) rafId = requestAnimationFrame(tick);
       else syncScrollYRef.current = null;
     };
     rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    return stop;
   }, [syncStatus]);
 
   useEffect(() => {
