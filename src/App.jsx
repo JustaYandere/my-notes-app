@@ -93,6 +93,21 @@ export default function NotesApp() {
   const [mainBgEffect, setMainBgEffect] = useState('color');
   const [mainBgImage, setMainBgImage] = useState(null);
   const [syncUser, setSyncUser] = useState(null);
+  // getSession() and onAuthStateChange's guaranteed initial fire both
+  // resolve to the same logical account on load, but as separate object
+  // references -- setting syncUser to a "new" object each time made
+  // useNotesSync's pull effect (which depends on [syncUser]) fire more than
+  // once for what's really one sign-in, each with its own stale snapshot of
+  // notes, which is how the app ended up re-adding the same cloud notes as
+  // "new" multiple times over. Only actually update state if the user id
+  // (or signed-out-ness) really changed.
+  function updateSyncUser(user) {
+    setSyncUser((prev) => {
+      const prevId = prev?.id ?? null;
+      const nextId = user?.id ?? null;
+      return prevId === nextId ? prev : user;
+    });
+  }
   const [sharedOutCloudIds, setSharedOutCloudIds] = useState(() => new Set());
   const [acceptsConnections, setAcceptsConnectionsState] = useState(true);
   const [syncStatus, setSyncStatus] = useState('idle');
@@ -498,9 +513,9 @@ export default function NotesApp() {
     // Settings -> Account has actually been opened. Check the session here
     // too so signed-in state (and anything that depends on it, like
     // Connected Notes) is available from the moment the app loads.
-    supabase.auth.getSession().then(({ data }) => setSyncUser(data.session?.user || null));
+    supabase.auth.getSession().then(({ data }) => updateSyncUser(data.session?.user || null));
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      setSyncUser(session?.user || null);
+      updateSyncUser(session?.user || null);
       if (event === 'PASSWORD_RECOVERY') {
         setPasswordRecovery(true);
         setSettingsSection('account');
@@ -2801,7 +2816,7 @@ export default function NotesApp() {
             {settingsSection === 'account' && (
               <>
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <AccountPanel onUserChange={setSyncUser} syncStatus={syncStatus} syncError={syncError} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} onMfaStatusChange={setHas2FA} />
+                  <AccountPanel onUserChange={updateSyncUser} syncStatus={syncStatus} syncError={syncError} text={text} muted={muted} bg={bg} borderStyle={borderStyle} passwordRecovery={passwordRecovery} onRecoveryHandled={() => setPasswordRecovery(false)} onFocusModeChange={setAccountRecoveryFocus} onMfaStatusChange={setHas2FA} />
                 </div>
 
                 {!accountRecoveryFocus && (

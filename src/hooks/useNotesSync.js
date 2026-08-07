@@ -1,6 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 
+// Module-level, not per-hook-instance: if the app somehow ends up with more
+// than one active copy of this hook pulling for the same account at once
+// (e.g. React re-firing effects for a syncUser that changed object identity
+// without changing account, or any other double-invocation), each instance
+// merges the cloud rows against its OWN snapshot of `notes` — neither one
+// ever sees the other's additions, so both conclude every single cloud row
+// is "new" and add it locally, doubling everything. Since ES modules are
+// singletons, this variable is shared across every instance, so only the
+// first pull for a given account actually runs.
+let pullInFlightForUserId = null;
+
 function toCloudRow(note, userId) {
   return {
     id: note.cloudId,
@@ -116,8 +127,14 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
+    if (pullInFlightForUserId === syncUser.id) {
+      console.log('[sync] a pull is already in flight for this account elsewhere — skipping duplicate');
+      return;
+    }
+    pullInFlightForUserId = syncUser.id;
     let cancelled = false;
     (async () => {
+      try {
       setSyncStatus?.('syncing');
       const { data, error } = await withRetry(() => supabase.from('notes').select('*').eq('user_id', syncUser.id));
       if (cancelled) return;
@@ -167,6 +184,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       pulledForUserRef.current = syncUser.id;
       setSyncStatus?.('idle');
       setSyncError?.('');
+      } finally {
+        if (pullInFlightForUserId === syncUser.id) pullInFlightForUserId = null;
+      }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
