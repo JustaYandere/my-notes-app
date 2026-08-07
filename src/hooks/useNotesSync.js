@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
+import { saveLocal } from '../utils/noteHelpers.jsx';
+import { NOTES_KEY } from '../constants';
 
 // Module-level, not per-hook-instance: if the app somehow ends up with more
 // than one active copy of this hook pulling for the same account at once
@@ -11,15 +13,6 @@ import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 // singletons, this variable is shared across every instance, so only the
 // first pull for a given account actually runs.
 let pullInFlightForUserId = null;
-// If this module gets evaluated more than once (which would explain the
-// module-level guard above not working), every hook instance created from
-// a given evaluation of the module shares this same id, but a genuinely
-// separate module instance would have its own different one. Logged
-// alongside a per-hook-instance id and a timestamp to tell apart "same
-// instance re-entering" from "two truly separate instances" from "two
-// sequential but distinct runs."
-const moduleInstanceId = Math.random().toString(36).slice(2, 8);
-console.log(`[sync] useNotesSync module evaluated, instance ${moduleInstanceId}`);
 
 function toCloudRow(note, userId) {
   return {
@@ -115,7 +108,6 @@ function fromCloudRow(row, localId) {
 // pulls + merges existing cloud notes on sign-in, pushes local changes (debounced),
 // and listens for realtime changes from other devices.
 export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError }) {
-  const [hookInstanceId] = useState(() => Math.random().toString(36).slice(2, 8));
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
   // cloud id -> when we last pushed it ourselves. Postgres sets updated_at
   // via a server-side trigger (its own clock), which never exactly matches
@@ -151,11 +143,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
-    console.log(`[sync] pull effect firing, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)} pullInFlightForUserId=${pullInFlightForUserId}`);
-    if (pullInFlightForUserId === syncUser.id) {
-      console.log(`[sync] a pull is already in flight for this account elsewhere — skipping duplicate, module=${moduleInstanceId} hook=${hookInstanceId}`);
-      return;
-    }
+    if (pullInFlightForUserId === syncUser.id) return;
     pullInFlightForUserId = syncUser.id;
     let cancelled = false;
     (async () => {
@@ -169,10 +157,8 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         setSyncError?.(error.message || 'Could not load your cloud notes.');
         return;
       }
-      console.log(`[sync] pull: ${(data || []).length} cloud rows for this account, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)}`);
       {
         const prev = notesRef.current;
-        console.log(`[sync] pull merge starting: ${prev.length} local notes in memory before merge, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)}`, prev.map((n) => ({ id: n.id, cloudId: n.cloudId, title: n.title })));
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
         (data || []).forEach((row) => {
@@ -189,14 +175,20 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           } else {
             const localId = nextIdRef.current++;
             const newNote = fromCloudRow(row, localId);
-            console.log(`[sync] pull: cloud row "${newNote.title}" (cloudId ${row.id}) had no local match — adding as new local note ${localId}`);
             merged = [...merged, newNote];
             syncedRef.current[localId] = newNote.updatedAt;
           }
         });
-        console.log(`[sync] pull merge done: ${merged.length} local notes after merge`);
         notesRef.current = merged;
         setNotes(merged);
+        // Written directly to disk here, independent of the user's "auto-save
+        // notes as I type" preference: that setting is about discarding
+        // in-progress typing, not about whether already-committed cloud data
+        // is allowed to survive a refresh. If this is skipped when auto-save
+        // is off, cloud rows never land in localStorage, so every reload
+        // starts over from stale local data and re-pulls (and re-pushes)
+        // everything, compounding forever.
+        saveLocal(NOTES_KEY, merged);
       }
 
       // NOTE: this used to also auto-delete the losing side of a duplicate
@@ -238,6 +230,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       const withIds = notesRef.current.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() }));
       notesRef.current = withIds;
       setNotes(withIds);
+      saveLocal(NOTES_KEY, withIds);
     }
   }, [notes, syncUser, setNotes, localSaveError]);
 
@@ -325,19 +318,23 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         const row = payload.new;
         const pushedAt = recentlyPushedRef.current[row.id];
         if (pushedAt && Date.now() - pushedAt < 5000) return;
-        setNotes((prev) => {
-          const existing = prev.find((n) => n.cloudId === row.id);
-          if (existing) {
-            if (isBlankRow(row) && hasRealContent(existing)) return prev;
-            const updated = fromCloudRow(row, existing.id);
-            syncedRef.current[existing.id] = updated.updatedAt;
-            return prev.map((n) => (n.id === existing.id ? updated : n));
-          }
+        const prev = notesRef.current;
+        const existing = prev.find((n) => n.cloudId === row.id);
+        let next;
+        if (existing) {
+          if (isBlankRow(row) && hasRealContent(existing)) return;
+          const updated = fromCloudRow(row, existing.id);
+          syncedRef.current[existing.id] = updated.updatedAt;
+          next = prev.map((n) => (n.id === existing.id ? updated : n));
+        } else {
           const localId = nextIdRef.current++;
           const newNote = fromCloudRow(row, localId);
           syncedRef.current[localId] = newNote.updatedAt;
-          return [...prev, newNote];
-        });
+          next = [...prev, newNote];
+        }
+        notesRef.current = next;
+        setNotes(next);
+        saveLocal(NOTES_KEY, next);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
