@@ -1435,19 +1435,30 @@ export default function NotesApp() {
     setNoteMenuOpen(false);
   }
   function restoreNote(id) { pushHistory(); setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, deletedAt: null } : n))); }
-  function deleteForever(id) {
+  async function deleteForever(id) {
     if (!window.confirm('Permanently delete this note? This cannot be undone.')) return;
     pushHistory();
     const note = notes.find((n) => n.id === id);
-    if (note?.cloudId) deleteCloudNote(note.cloudId);
+    if (note?.cloudId) {
+      const ok = await deleteCloudNote(note.cloudId);
+      if (!ok) {
+        setActionToast("Couldn't delete from the cloud — it may come back on next sync");
+        setTimeout(() => setActionToast(''), 3000);
+      }
+    }
     setNotes((prev) => prev.filter((n) => n.id !== id));
   }
-  function emptyTrash() {
+  async function emptyTrash() {
     if (trashedNotes.length === 0) return;
     if (!window.confirm(`Permanently delete all ${trashedNotes.length} note(s) in Trash?`)) return;
     pushHistory();
-    deleteCloudNotes(trashedNotes.map((n) => n.cloudId).filter(Boolean));
+    const cloudIds = trashedNotes.map((n) => n.cloudId).filter(Boolean);
+    const notDeleted = cloudIds.length ? await deleteCloudNotes(cloudIds) : [];
     setNotes((prev) => prev.filter((n) => !n.deletedAt));
+    if (notDeleted.length) {
+      setActionToast(`${notDeleted.length} note(s) couldn't be deleted from the cloud — they may come back on next sync`);
+      setTimeout(() => setActionToast(''), 3000);
+    }
   }
 
   async function cleanUpDuplicateNotes() {
@@ -1496,6 +1507,7 @@ export default function NotesApp() {
       return;
     }
     setNotes((prev) => prev.filter((n) => !idsToRemove.includes(n.id)));
+    let notDeleted = [];
     if (cloudIdsToDelete.length > 0) {
       // Must actually finish before we tell the user it's done — this used
       // to fire-and-forget, so refreshing right after clicking the button
@@ -1503,9 +1515,18 @@ export default function NotesApp() {
       // sent, and the "removed" duplicates would just come back on the next
       // sync since the cloud never got the memo.
       setCleanupStatus('Cleaning up…');
-      await deleteCloudNotes(cloudIdsToDelete);
+      notDeleted = await deleteCloudNotes(cloudIdsToDelete);
     }
-    setCleanupStatus(`Removed ${idsToRemove.length} note${idsToRemove.length === 1 ? '' : 's'}. Safe to refresh now — undo will bring them back if this was wrong.`);
+    if (notDeleted.length > 0) {
+      // deleteCloudNotes reporting rows it couldn't actually remove almost
+      // always means Row Level Security is silently blocking the delete
+      // (no error, just zero rows affected) -- these will keep re-appearing
+      // on every sync no matter how many times cleanup runs, until the
+      // Supabase DELETE policy on the notes table is fixed.
+      setCleanupStatus(`Removed ${idsToRemove.length - notDeleted.length} of ${idsToRemove.length} note(s) locally, but ${notDeleted.length} couldn't be deleted from the cloud (likely blocked by a database permission) — they will keep coming back on every sync until that's fixed.`);
+    } else {
+      setCleanupStatus(`Removed ${idsToRemove.length} note${idsToRemove.length === 1 ? '' : 's'}. Safe to refresh now — undo will bring them back if this was wrong.`);
+    }
   }
 
   function exportAll() {

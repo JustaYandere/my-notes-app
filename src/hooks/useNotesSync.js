@@ -374,9 +374,31 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   }, [syncUser]);
 
   return {
-    deleteCloudNote: async (cloudId) => { if (supabaseEnabled && cloudId) await withRetry(() => supabase.from('notes').delete().eq('id', cloudId)); },
+    // .select('id') on the delete makes Postgres hand back which rows it
+    // actually removed -- a delete a Row Level Security policy silently
+    // blocks (e.g. a DELETE policy that's missing or narrower than the
+    // SELECT one) resolves with no error and zero affected rows, not a
+    // rejection, so without checking the returned rows this looks
+    // identical to success. That's a real, confirmed-plausible way for
+    // "cleaned up" duplicates to keep coming back forever.
+    deleteCloudNote: async (cloudId) => {
+      if (!supabaseEnabled || !cloudId) return true;
+      const { data, error } = await withRetry(() => supabase.from('notes').delete().eq('id', cloudId).select('id'));
+      if (error) { console.error('Cloud delete failed:', error); return false; }
+      if (!data || data.length === 0) { console.error('Cloud delete affected 0 rows (likely blocked by Row Level Security):', cloudId); return false; }
+      return true;
+    },
     // Batched version for deleting many rows at once (e.g. emptying Trash,
     // cleaning up duplicates) — a single request instead of one per row.
-    deleteCloudNotes: async (cloudIds) => { if (supabaseEnabled && cloudIds?.length) await withRetry(() => supabase.from('notes').delete().in('id', cloudIds)); },
+    // Returns the cloudIds that were requested but NOT actually deleted.
+    deleteCloudNotes: async (cloudIds) => {
+      if (!supabaseEnabled || !cloudIds?.length) return [];
+      const { data, error } = await withRetry(() => supabase.from('notes').delete().in('id', cloudIds).select('id'));
+      if (error) { console.error('Cloud delete failed:', error); return cloudIds; }
+      const actuallyDeleted = new Set((data || []).map((row) => row.id));
+      const notDeleted = cloudIds.filter((id) => !actuallyDeleted.has(id));
+      if (notDeleted.length) console.error('Cloud delete affected fewer rows than requested (likely blocked by Row Level Security):', notDeleted);
+      return notDeleted;
+    },
   };
 }
