@@ -265,7 +265,7 @@ export default function NotesApp() {
   useEffect(() => {
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hydrated) return;
     const saved = Number(sessionStorage.getItem('makinote_scrollY'));
     if (saved > 0) window.scrollTo(0, saved);
@@ -301,7 +301,13 @@ export default function NotesApp() {
     const prevStatus = prevSyncStatusRef.current;
     prevSyncStatusRef.current = syncStatus;
     if (syncStatus === 'syncing') {
-      if (syncScrollYRef.current === null) syncScrollYRef.current = window.scrollY;
+      // Cloud sync only waits on sign-in, not on the local scroll-restore
+      // effect above finishing -- capturing an anchor before that's had a
+      // chance to run would pin to the pre-restore (top) position and then
+      // fight the restore for the next 1.5s once it does apply, undoing it
+      // right back to the top. Skipping the capture until hydrated is true
+      // means it always reads the already-restored position instead.
+      if (hydrated && syncScrollYRef.current === null) syncScrollYRef.current = window.scrollY;
       return;
     }
     if (prevStatus !== 'syncing' || syncScrollYRef.current === null) return;
@@ -332,7 +338,7 @@ export default function NotesApp() {
     };
     rafId = requestAnimationFrame(tick);
     return stop;
-  }, [syncStatus]);
+  }, [syncStatus, hydrated]);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
