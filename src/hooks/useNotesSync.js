@@ -178,6 +178,16 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
             syncedRef.current[localId] = newNote.updatedAt;
           }
         });
+        // A note that's already been synced (has a cloudId) but whose row no
+        // longer comes back from this query was deleted for real elsewhere
+        // (deleteForever/emptyTrash on another device) -- without this, a
+        // permanently-deleted note just stays on every device that isn't the
+        // one that deleted it, forever, since nothing else ever removes a
+        // local note. Shared-with-me notes are excluded: this query only
+        // returns rows this account owns, so their absence here means
+        // nothing about whether they still exist.
+        const fetchedCloudIds = new Set((data || []).map((row) => row.id));
+        merged = merged.filter((n) => !n.cloudId || n.remoteOwnerId || fetchedCloudIds.has(n.cloudId));
         notesRef.current = merged;
         setNotes(merged);
         // Written directly to disk here, independent of the user's "auto-save
@@ -318,7 +328,21 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     const channel = supabase
       .channel(`notes-${syncUser.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${syncUser.id}` }, (payload) => {
-        if (payload.eventType === 'DELETE' || !payload.new) return;
+        if (payload.eventType === 'DELETE') {
+          // A permanent delete (deleteForever/emptyTrash) elsewhere -- remove
+          // the matching local copy so it doesn't just sit here forever. Only
+          // the primary key is guaranteed present on a delete payload.
+          const deletedCloudId = payload.old?.id;
+          if (!deletedCloudId) return;
+          const prev = notesRef.current;
+          const next = prev.filter((n) => n.cloudId !== deletedCloudId);
+          if (next.length === prev.length) return;
+          notesRef.current = next;
+          setNotes(next);
+          saveNotesLocal(next);
+          return;
+        }
+        if (!payload.new) return;
         const row = payload.new;
         const pushedAt = recentlyPushedRef.current[row.id];
         if (pushedAt && Date.now() - pushedAt < 5000) return;
