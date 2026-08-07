@@ -1,10 +1,11 @@
 export function loadLocal(key) { try { const raw = window.localStorage.getItem(key); return raw ? JSON.parse(raw) : null; } catch { return null; } }
 export function saveLocal(key, value) {
+  const serialized = JSON.stringify(value);
   try {
-    window.localStorage.setItem(key, JSON.stringify(value));
+    window.localStorage.setItem(key, serialized);
     return true;
   } catch (err) {
-    console.error(`[localStorage] save failed for "${key}":`, err.name, err.message);
+    console.error(`[localStorage] save failed for "${key}" (attempted ${serialized.length} chars):`, err.name, err.message);
     return false;
   }
 }
