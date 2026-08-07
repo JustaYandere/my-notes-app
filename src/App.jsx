@@ -12,9 +12,10 @@ import {
   loadLocal, saveLocal, formatDate, previewText,
   wordsOf, jaccard, sortChecklistItems, reorderBodyByStrike, previewPlan,
 } from './utils/noteHelpers';
+import { saveNotesLocal, loadNotesLocal, saveSettingsLocal, hydrateAttachments } from './utils/attachmentStorage';
 import {
   APP_VERSION, FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
-  NOTES_KEY, SETTINGS_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
+  SETTINGS_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
 } from './constants';
 import ColorWheel from './components/ColorWheel';
 import LightnessSlider from './components/LightnessSlider';
@@ -242,7 +243,7 @@ export default function NotesApp() {
   // for a real "nothing left open, this is the exit press" back press.
   const selfTriggeredBackRef = useRef(false);
   const keyboardOpenRef = useRef(false);
-  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError, localSaveError });
+  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady: hydrated });
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
@@ -287,11 +288,12 @@ export default function NotesApp() {
   function colorHexOf(colorId) { return customColors.find((c) => c.id === colorId)?.hex || customColors[0]?.hex || '#5B9BB8'; }
 
   useLayoutEffect(() => {
-    let savedNotes = loadLocal(NOTES_KEY);
+    let savedNotes = loadNotesLocal();
     if (!savedNotes) {
       const legacyNotes = loadLocal(LEGACY_NOTES_KEY);
-      if (legacyNotes) { savedNotes = legacyNotes; saveLocal(NOTES_KEY, legacyNotes); }
+      if (legacyNotes) { savedNotes = legacyNotes; saveNotesLocal(legacyNotes); }
     }
+    let finalNotesForAttachmentHydration = SEED_NOTES;
     if (Array.isArray(savedNotes) && savedNotes.length) {
       let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], images: [], ...n }));
       // Sweep out empty notes left behind by earlier sessions (nothing typed,
@@ -371,6 +373,7 @@ export default function NotesApp() {
         return { ...n, checklist: fixedChecklist };
       });
       if (hadDuplicates) setNotes(initialNotes);
+      finalNotesForAttachmentHydration = initialNotes;
     } else {
       // Fresh install, nothing in localStorage yet — the starter notes are
       // the current `notes` state, so new ids must start past their max.
@@ -379,7 +382,7 @@ export default function NotesApp() {
     let savedSettings = loadLocal(SETTINGS_KEY);
     if (!savedSettings) {
       const legacySettings = loadLocal(LEGACY_SETTINGS_KEY);
-      if (legacySettings) { savedSettings = legacySettings; saveLocal(SETTINGS_KEY, legacySettings); }
+      if (legacySettings) { savedSettings = legacySettings; saveSettingsLocal(legacySettings); }
     }
     if (savedSettings) {
       // Base the next-id counters on the highest numeric id actually present
@@ -438,22 +441,34 @@ export default function NotesApp() {
       if (typeof savedSettings.pin === 'string') setPin(savedSettings.pin);
       if (savedSettings.pinEnabled) setLocked(true);
     }
-    setHydrated(true);
+    // Runs after the synchronous (metadata-only) hydration above so the app
+    // can paint fast, then fills in image/voice-note dataUrls and the custom
+    // background image/ambient sound from IndexedDB. `hydrated` (which this
+    // gates) is what the local-save effects and the cloud-push effect wait
+    // on -- staying false until this resolves means nothing gets saved back
+    // to disk, and nothing gets pushed to the cloud, while `notes` might
+    // still hold stripped (dataUrl-less) attachments.
+    (async () => {
+      const { notes: mergedNotes, mainBgImage: bgImg, ambientSoundData: ambSound } = await hydrateAttachments(finalNotesForAttachmentHydration);
+      setNotes(mergedNotes);
+      if (bgImg) setMainBgImage(bgImg);
+      if (ambSound) setAmbientSoundData(ambSound);
+      setHydrated(true);
+    })();
   }, []);
 
   useEffect(() => {
     if (!hydrated || !autoSave) return;
-    // If this fails (most likely localStorage quota exceeded, e.g. from
-    // embedded images), whatever was last saved successfully stays on disk
-    // — the in-memory state the user sees can silently drift ahead of it.
-    // Surfacing this is what matters here; it doesn't fix the underlying
-    // quota problem (that needs less data or a different storage strategy).
+    // Note text/checklists/metadata only -- image and voice-note bytes are
+    // split off into IndexedDB by saveNotesLocal before this ever reaches
+    // localStorage, so this should stay well under quota regardless of
+    // attachment count. If it still fails, something else is going on.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- reflects the real result of a write to an external system (localStorage), not derived render state
-    setLocalSaveError(!saveLocal(NOTES_KEY, notes));
+    setLocalSaveError(!saveNotesLocal(notes));
   }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
-    saveLocal(SETTINGS_KEY, { customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings });
+    saveSettingsLocal({ customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings });
   }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings, hydrated]);
 
   useEffect(() => {
@@ -846,13 +861,13 @@ export default function NotesApp() {
     });
   }
   function manualSave() {
-    if (saveLocal(NOTES_KEY, notes)) { setJustSaved(true); setTimeout(() => setJustSaved(false), 1400); }
+    if (saveNotesLocal(notes)) { setJustSaved(true); setTimeout(() => setJustSaved(false), 1400); }
   }
   function saveCurrentNote() {
     if (!editingNote) { manualSave(); return; }
     const updatedNotes = notes.map((n) => (n.id === editingNote.id ? { ...n, title: draftTitle, body: draftBody, updatedAt: Date.now() } : n));
     setNotes(updatedNotes);
-    if (saveLocal(NOTES_KEY, updatedNotes)) {
+    if (saveNotesLocal(updatedNotes)) {
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 1400);
     }

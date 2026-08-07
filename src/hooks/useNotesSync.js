@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
-import { saveLocal } from '../utils/noteHelpers.jsx';
-import { NOTES_KEY } from '../constants';
+import { saveNotesLocal } from '../utils/attachmentStorage';
 
 // Module-level, not per-hook-instance: if the app somehow ends up with more
 // than one active copy of this hook pulling for the same account at once
@@ -107,7 +106,7 @@ function fromCloudRow(row, localId) {
 // Syncs local `notes` state with a Supabase `notes` table while a user is signed in:
 // pulls + merges existing cloud notes on sign-in, pushes local changes (debounced),
 // and listens for realtime changes from other devices.
-export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError }) {
+export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady = true }) {
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
   // cloud id -> when we last pushed it ourselves. Postgres sets updated_at
   // via a server-side trigger (its own clock), which never exactly matches
@@ -188,7 +187,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         // is off, cloud rows never land in localStorage, so every reload
         // starts over from stale local data and re-pulls (and re-pushes)
         // everything, compounding forever.
-        saveLocal(NOTES_KEY, merged);
+        saveNotesLocal(merged);
       }
 
       // NOTE: this used to also auto-delete the losing side of a duplicate
@@ -230,12 +229,17 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       const withIds = notesRef.current.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() }));
       notesRef.current = withIds;
       setNotes(withIds);
-      saveLocal(NOTES_KEY, withIds);
+      saveNotesLocal(withIds);
     }
   }, [notes, syncUser, setNotes, localSaveError]);
 
   useEffect(() => {
-    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError) return;
+    // Waiting on localAttachmentsReady matters specifically here (not on the
+    // pull or cloudId-assignment effects above): until the local IndexedDB
+    // attachment merge has finished, a note's images/voiceNotes in `notes`
+    // may still be metadata-only (no dataUrl yet). Pushing that up would
+    // overwrite the cloud row's real image/audio data with a stripped one.
+    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError || !localAttachmentsReady) return;
 
     async function doPush() {
       if (!syncUserRef.current) return;
@@ -307,7 +311,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       document.removeEventListener('visibilitychange', flushOnHide);
       window.removeEventListener('pagehide', flushOnHide);
     };
-  }, [notes, syncUser, setSyncStatus, localSaveError]);
+  }, [notes, syncUser, setSyncStatus, localSaveError, localAttachmentsReady]);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
@@ -334,7 +338,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         }
         notesRef.current = next;
         setNotes(next);
-        saveLocal(NOTES_KEY, next);
+        saveNotesLocal(next);
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
