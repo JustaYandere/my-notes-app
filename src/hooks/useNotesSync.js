@@ -128,6 +128,20 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   const pushTimerRef = useRef(null);
   const syncUserRef = useRef(syncUser);
   useEffect(() => { syncUserRef.current = syncUser; }, [syncUser]);
+  // Always-current mirror of `notes`, used instead of the setNotes(prev =>
+  // ...) functional-update form for the pull merge below. React's rules
+  // require updater functions passed to setState to be pure -- its
+  // reconciler is allowed to invoke them more than once as part of normal
+  // (not just StrictMode-dev) operation, discarding all but one result. The
+  // pull merge used to read/write syncedRef and nextIdRef *inside* that
+  // updater, so every invocation -- including any discarded one -- still
+  // ran those side effects for real, which is a very plausible source of
+  // the duplicate cloud rows this was chasing. Reading from this ref
+  // instead of using the functional form sidesteps the whole issue: the
+  // merge becomes a single, plain computation with no function for React
+  // to potentially call twice.
+  const notesRef = useRef(notes);
+  useEffect(() => { notesRef.current = notes; }, [notes]);
   // Which signed-in user we've finished an initial cloud pull for. Assigning
   // cloud ids and pushing must wait for this — otherwise a note that's
   // actually already synced (just not matched locally yet) can get stamped
@@ -156,7 +170,8 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         return;
       }
       console.log(`[sync] pull: ${(data || []).length} cloud rows for this account, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)}`);
-      setNotes((prev) => {
+      {
+        const prev = notesRef.current;
         console.log(`[sync] pull merge starting: ${prev.length} local notes in memory before merge, module=${moduleInstanceId} hook=${hookInstanceId} t=${performance.now().toFixed(1)}`, prev.map((n) => ({ id: n.id, cloudId: n.cloudId, title: n.title })));
         const byCloudId = new Map(prev.filter((n) => n.cloudId).map((n) => [n.cloudId, n]));
         let merged = prev;
@@ -180,8 +195,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           }
         });
         console.log(`[sync] pull merge done: ${merged.length} local notes after merge`);
-        return merged;
-      });
+        notesRef.current = merged;
+        setNotes(merged);
+      }
 
       // NOTE: this used to also auto-delete the losing side of a duplicate
       // pair (and empty notes) straight from Supabase on every single pull,
@@ -219,7 +235,9 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     const missing = notes.filter((n) => !n.cloudId);
     if (missing.length > 0) {
       console.log(`[sync] assigning fresh cloudId to ${missing.length} note(s) that don't have one`, missing.map((n) => ({ id: n.id, title: n.title })));
-      setNotes((prev) => prev.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() })));
+      const withIds = notesRef.current.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() }));
+      notesRef.current = withIds;
+      setNotes(withIds);
     }
   }, [notes, syncUser, setNotes, localSaveError]);
 
