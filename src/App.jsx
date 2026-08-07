@@ -253,6 +253,36 @@ export default function NotesApp() {
     },
   });
 
+  // A sync pass can briefly render fewer notes than the state just before or
+  // after it (e.g. a stale-deleted note dropping out mid-merge before the
+  // rest of the batch lands), long enough for the page to shrink under the
+  // browser's current scroll position. Browsers clamp scrollY down to fit
+  // when that happens, but never scroll back up once the page grows again,
+  // so the user quietly ends up stranded near the bottom. This anchors to
+  // the whole 'syncing' -> not-syncing lifecycle (rather than each
+  // individual notes update, which fought itself when tried) -- capture
+  // scrollY once when a sync pass starts, then keep re-applying it for a
+  // beat after it ends to outlast any late reflow (attachment merge,
+  // images finishing loading, etc.), not just the very next frame.
+  const syncScrollYRef = useRef(null);
+  const prevSyncStatusRef = useRef(syncStatus);
+  useEffect(() => {
+    const prevStatus = prevSyncStatusRef.current;
+    prevSyncStatusRef.current = syncStatus;
+    if (syncStatus === 'syncing') {
+      if (syncScrollYRef.current === null) syncScrollYRef.current = window.scrollY;
+      return;
+    }
+    if (prevStatus !== 'syncing' || syncScrollYRef.current === null) return;
+    const y = syncScrollYRef.current;
+    const restore = () => { if (window.scrollY !== y) window.scrollTo(window.scrollX, y); };
+    const raf = requestAnimationFrame(restore);
+    const t1 = setTimeout(restore, 300);
+    const t2 = setTimeout(restore, 900);
+    const t3 = setTimeout(() => { syncScrollYRef.current = null; }, 1200);
+    return () => { cancelAnimationFrame(raf); clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [syncStatus]);
+
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
     let cancelled = false;
