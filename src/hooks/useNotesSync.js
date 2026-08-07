@@ -2,6 +2,23 @@ import { useEffect, useRef } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 import { saveNotesLocal } from '../utils/attachmentStorage';
 
+// A sync-driven notes update can briefly render fewer notes than either the
+// state just before or just after it (e.g. a duplicate/stale-deleted note
+// dropping out of the list mid-merge before the rest of the batch lands) --
+// long enough for the page to shrink under the browser's current scroll
+// position. Browsers clamp scrollY down to fit whenever that happens, but
+// never scroll back up again on their own once the page grows back, so the
+// user gets silently dumped near the bottom. Re-applying the pre-update
+// scrollY one frame later (after the browser's already had a chance to
+// clamp it) undoes that without fighting anything -- if the page really did
+// end up shorter for good, this is a no-op since scrollTo clamps too.
+function setNotesPreservingScroll(setNotes, next) {
+  if (typeof window === 'undefined') { setNotes(next); return; }
+  const y = window.scrollY;
+  setNotes(next);
+  requestAnimationFrame(() => { if (window.scrollY !== y) window.scrollTo(window.scrollX, y); });
+}
+
 // Module-level, not per-hook-instance: if the app somehow ends up with more
 // than one active copy of this hook pulling for the same account at once
 // (e.g. React re-firing effects for a syncUser that changed object identity
@@ -190,7 +207,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         const staleRemoved = merged.filter((n) => n.cloudId && !n.remoteOwnerId && !fetchedCloudIds.has(n.cloudId));
         if (staleRemoved.length) merged = merged.filter((n) => !n.cloudId || n.remoteOwnerId || fetchedCloudIds.has(n.cloudId));
         notesRef.current = merged;
-        setNotes(merged);
+        setNotesPreservingScroll(setNotes, merged);
         // Written directly to disk here, independent of the user's "auto-save
         // notes as I type" preference: that setting is about discarding
         // in-progress typing, not about whether already-committed cloud data
@@ -341,7 +358,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           if (!removedNote) return;
           const next = prev.filter((n) => n.cloudId !== deletedCloudId);
           notesRef.current = next;
-          setNotes(next);
+          setNotesPreservingScroll(setNotes, next);
           saveNotesLocal(next);
           onNotesRemoved?.([removedNote], 'deleted-elsewhere');
           return;
