@@ -258,12 +258,14 @@ export default function NotesApp() {
   // rest of the batch lands), long enough for the page to shrink under the
   // browser's current scroll position. Browsers clamp scrollY down to fit
   // when that happens, but never scroll back up once the page grows again,
-  // so the user quietly ends up stranded near the bottom. This anchors to
-  // the whole 'syncing' -> not-syncing lifecycle (rather than each
-  // individual notes update, which fought itself when tried) -- capture
-  // scrollY once when a sync pass starts, then keep re-applying it for a
-  // beat after it ends to outlast any late reflow (attachment merge,
-  // images finishing loading, etc.), not just the very next frame.
+  // so the user quietly ends up stranded near the bottom. There can be
+  // several such shrink events seconds apart (pull, then a cloudId
+  // assignment, then a push settling) -- correcting only at a few fixed
+  // checkpoints (next frame, +300ms, +900ms) left gaps for the browser to
+  // clamp again in between, which showed up as several distinct visible
+  // jumps instead of one smooth fix. Pinning scrollY on every animation
+  // frame for a window after sync activity, instead of at sparse
+  // checkpoints, corrects any clamp before the browser ever paints it.
   const syncScrollYRef = useRef(null);
   const prevSyncStatusRef = useRef(syncStatus);
   useEffect(() => {
@@ -275,12 +277,15 @@ export default function NotesApp() {
     }
     if (prevStatus !== 'syncing' || syncScrollYRef.current === null) return;
     const y = syncScrollYRef.current;
-    const restore = () => { if (window.scrollY !== y) window.scrollTo(window.scrollX, y); };
-    const raf = requestAnimationFrame(restore);
-    const t1 = setTimeout(restore, 300);
-    const t2 = setTimeout(restore, 900);
-    const t3 = setTimeout(() => { syncScrollYRef.current = null; }, 1200);
-    return () => { cancelAnimationFrame(raf); clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    const deadline = performance.now() + 1500;
+    let rafId;
+    const tick = () => {
+      if (window.scrollY !== y) window.scrollTo(window.scrollX, y);
+      if (performance.now() < deadline) rafId = requestAnimationFrame(tick);
+      else syncScrollYRef.current = null;
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
   }, [syncStatus]);
 
   useEffect(() => {
