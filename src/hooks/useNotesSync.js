@@ -106,7 +106,7 @@ function fromCloudRow(row, localId) {
 // Syncs local `notes` state with a Supabase `notes` table while a user is signed in:
 // pulls + merges existing cloud notes on sign-in, pushes local changes (debounced),
 // and listens for realtime changes from other devices.
-export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady = true }) {
+export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady = true, onNotesRemoved }) {
   const syncedRef = useRef({}); // local note id -> last-synced updatedAt
   // cloud id -> when we last pushed it ourselves. Postgres sets updated_at
   // via a server-side trigger (its own clock), which never exactly matches
@@ -187,7 +187,8 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         // returns rows this account owns, so their absence here means
         // nothing about whether they still exist.
         const fetchedCloudIds = new Set((data || []).map((row) => row.id));
-        merged = merged.filter((n) => !n.cloudId || n.remoteOwnerId || fetchedCloudIds.has(n.cloudId));
+        const staleRemoved = merged.filter((n) => n.cloudId && !n.remoteOwnerId && !fetchedCloudIds.has(n.cloudId));
+        if (staleRemoved.length) merged = merged.filter((n) => !n.cloudId || n.remoteOwnerId || fetchedCloudIds.has(n.cloudId));
         notesRef.current = merged;
         setNotes(merged);
         // Written directly to disk here, independent of the user's "auto-save
@@ -198,6 +199,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         // starts over from stale local data and re-pulls (and re-pushes)
         // everything, compounding forever.
         saveNotesLocal(merged);
+        if (staleRemoved.length) onNotesRemoved?.(staleRemoved, 'deleted-elsewhere');
       }
 
       // NOTE: this used to also auto-delete the losing side of a duplicate
@@ -335,11 +337,13 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           const deletedCloudId = payload.old?.id;
           if (!deletedCloudId) return;
           const prev = notesRef.current;
+          const removedNote = prev.find((n) => n.cloudId === deletedCloudId);
+          if (!removedNote) return;
           const next = prev.filter((n) => n.cloudId !== deletedCloudId);
-          if (next.length === prev.length) return;
           notesRef.current = next;
           setNotes(next);
           saveNotesLocal(next);
+          onNotesRemoved?.([removedNote], 'deleted-elsewhere');
           return;
         }
         if (!payload.new) return;

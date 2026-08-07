@@ -195,6 +195,7 @@ export default function NotesApp() {
   const [actionToast, setActionToast] = useState('');
   const [exiting, setExiting] = useState(false);
   const [localSaveError, setLocalSaveError] = useState(false);
+  const [cleanupNotice, setCleanupNotice] = useState('');
   const [hiddenSettings, setHiddenSettings] = useState([]);
   const [hideConfirm, setHideConfirm] = useState(null); // { id, label, x, y }
   const holdToHideTimer = useRef(null);
@@ -243,7 +244,14 @@ export default function NotesApp() {
   // for a real "nothing left open, this is the exit press" back press.
   const selfTriggeredBackRef = useRef(false);
   const keyboardOpenRef = useRef(false);
-  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({ notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady: hydrated });
+  const { deleteCloudNote, deleteCloudNotes } = useNotesSync({
+    notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady: hydrated,
+    onNotesRemoved: (removed, reason) => {
+      if (reason !== 'deleted-elsewhere' || removed.length === 0) return;
+      console.log('[sync] removed local note(s) already deleted on another device:', removed);
+      setCleanupNotice(`Synced: removed ${removed.length} note(s) already deleted on another device — ${removed.map((n) => `"${n.title || 'Untitled'}"`).join(', ')}`);
+    },
+  });
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
@@ -298,6 +306,7 @@ export default function NotesApp() {
       let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], images: [], ...n }));
       // Sweep out empty notes left behind by earlier sessions (nothing typed,
       // no checklist/voice/images/tags), aside from ones already in Trash.
+      const emptyNotesRemoved = [];
       initialNotes = initialNotes.filter((n) => {
         if (n.deletedAt || n.remoteOwnerId) return true;
         const isEmpty = !(n.title || '').trim() && !(n.body || '').trim()
@@ -305,6 +314,7 @@ export default function NotesApp() {
           && (!n.voiceNotes || n.voiceNotes.length === 0)
           && (!n.images || n.images.length === 0)
           && (!n.tags || n.tags.length === 0);
+        if (isEmpty) emptyNotesRemoved.push(n);
         return !isEmpty;
       });
       // Also collapse any notes that are exact-content duplicates of each
@@ -332,7 +342,16 @@ export default function NotesApp() {
         if (group.length < 2) return;
         [...group].sort((a, b) => b.updatedAt - a.updatedAt).slice(1).forEach((n) => dupIdsToRemove.add(n.id));
       });
+      const duplicateNotesRemoved = initialNotes.filter((n) => dupIdsToRemove.has(n.id));
       if (dupIdsToRemove.size > 0) initialNotes = initialNotes.filter((n) => !dupIdsToRemove.has(n.id));
+      if (emptyNotesRemoved.length > 0 || duplicateNotesRemoved.length > 0) {
+        const parts = [];
+        if (emptyNotesRemoved.length) parts.push(`${emptyNotesRemoved.length} empty note(s)`);
+        if (duplicateNotesRemoved.length) parts.push(`${duplicateNotesRemoved.length} duplicate copy/copies`);
+        console.log('[startup cleanup] removed on load:', { emptyNotesRemoved, duplicateNotesRemoved });
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
+        setCleanupNotice(`On load: removed ${parts.join(' and ')} — ${[...emptyNotesRemoved, ...duplicateNotesRemoved].map((n) => `"${n.title || 'Untitled'}"`).join(', ')}`);
+      }
       // Trim any note that already has more than the 4-tag cap (from before
       // the cap existed) down to its first 4 tags, matching the limit new
       // additions are held to.
@@ -353,7 +372,6 @@ export default function NotesApp() {
         seenNoteIds.add(n.id);
         return n;
       });
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from localStorage on mount, not a render-driven sync
       setNotes(initialNotes);
       nextId.current = Math.max(4, ...initialNotes.map((n) => (n.id || 0) + 1));
       const existingItemNums = initialNotes.flatMap((n) => (n.checklist || []).map((it) => parseInt(String(it.id).replace(/\D/g, ''), 10) || 0));
@@ -2080,6 +2098,12 @@ export default function NotesApp() {
           <div style={{ background: '#E8735F', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Ban size={15} style={{ flexShrink: 0 }} />
             Couldn't save your notes on this device — it may be low on storage. Recent changes (especially images) may not stick around after closing the app. Try removing large images or freeing up space.
+          </div>
+        )}
+        {cleanupNotice && (
+          <div style={{ background: '#5B9BB8', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <span style={{ flex: 1 }}>{cleanupNotice}</span>
+            <button onClick={() => setCleanupNotice('')} aria-label="Dismiss" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: 0, opacity: 0.85 }}><X size={15} /></button>
           </div>
         )}
         <div className="app-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 16, flexWrap: 'wrap' }}>
