@@ -253,6 +253,35 @@ export default function NotesApp() {
     },
   });
 
+  // Restores scroll position across a refresh, not just during a sync pass.
+  // Browsers' own scroll restoration is unreliable here: content isn't
+  // there yet when it tries to restore, since notes load from localStorage
+  // asynchronously relative to first paint. Doing it ourselves and turning
+  // off the native attempt (so it doesn't fight this) gives predictable
+  // behavior. Restoring once `hydrated` is true means the notes list
+  // already reflects the real local data, so there's actually something to
+  // scroll to -- the ongoing sync-pin effect below then naturally takes
+  // this restored position as its own anchor for the rest of the sync pass.
+  useEffect(() => {
+    if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
+  }, []);
+  useEffect(() => {
+    if (!hydrated) return;
+    const saved = Number(sessionStorage.getItem('makinote_scrollY'));
+    if (saved > 0) window.scrollTo(0, saved);
+  }, [hydrated]);
+  useEffect(() => {
+    function saveScrollY() { sessionStorage.setItem('makinote_scrollY', String(window.scrollY)); }
+    document.addEventListener('visibilitychange', saveScrollY);
+    window.addEventListener('pagehide', saveScrollY);
+    window.addEventListener('beforeunload', saveScrollY);
+    return () => {
+      document.removeEventListener('visibilitychange', saveScrollY);
+      window.removeEventListener('pagehide', saveScrollY);
+      window.removeEventListener('beforeunload', saveScrollY);
+    };
+  }, []);
+
   // A sync pass can briefly render fewer notes than the state just before or
   // after it (e.g. a stale-deleted note dropping out mid-merge before the
   // rest of the batch lands), long enough for the page to shrink under the
