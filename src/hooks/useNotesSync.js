@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 import { saveNotesLocal } from '../utils/attachmentStorage';
 
@@ -48,7 +48,17 @@ function toCloudRowUpdate(note) {
 async function withRetry(fn, attempts = 3) {
   let result;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, attempt * 2000));
+    // Retrying is for transient blips against a connection that's actually
+    // there (a cold-started project, brief contention) -- retrying against
+    // a connection the browser already knows is down just burns several
+    // seconds of backoff for nothing before failing anyway. `navigator.onLine`
+    // isn't a perfect signal (a captive portal can look "online"), but it
+    // reliably catches "wifi/data is literally off", which is the case this
+    // was actually wasting time on.
+    if (attempt > 0) {
+      if (!navigator.onLine) break;
+      await new Promise((r) => setTimeout(r, attempt * 2000));
+    }
     try {
       result = await fn();
     } catch (err) {
@@ -58,6 +68,7 @@ async function withRetry(fn, attempts = 3) {
       result = { data: null, error: err };
     }
     if (!result.error) return result;
+    if (!navigator.onLine) break;
   }
   return result;
 }
@@ -139,6 +150,18 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   // with a brand-new id and re-uploaded as a duplicate before the pull that
   // would have matched it by its real id has had a chance to land.
   const pulledForUserRef = useRef(null);
+  // Bumped by the 'online' listener below to re-trigger the pull effect
+  // (which otherwise only depends on `syncUser`) once the browser reports
+  // connectivity is back, so a pull that failed while offline recovers on
+  // its own instead of requiring a manual refresh.
+  const [retryTick, setRetryTick] = useState(0);
+  useEffect(() => {
+    function onOnline() {
+      if (syncUser && pulledForUserRef.current !== syncUser.id) setRetryTick((t) => t + 1);
+    }
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [syncUser]);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
@@ -153,7 +176,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       if (error) {
         console.error('Sync pull failed:', error);
         setSyncStatus?.('error');
-        setSyncError?.(error.message || 'Could not load your cloud notes.');
+        setSyncError?.(!navigator.onLine ? "You're offline — will sync automatically once you're back online." : (error.message || 'Could not load your cloud notes.'));
         return;
       }
       {
@@ -220,7 +243,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [syncUser]);
+  }, [syncUser, retryTick]);
 
   // Assign a stable client-generated cloud id to any note that doesn't have one yet,
   // synchronously (no network round trip) so a reload/crash mid-sync can never cause
