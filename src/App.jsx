@@ -15,7 +15,7 @@ import {
 import { saveNotesLocal, loadNotesLocal, saveSettingsLocal, hydrateAttachments } from './utils/attachmentStorage';
 import {
   APP_VERSION, FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
-  SETTINGS_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
+  SETTINGS_KEY, SHARED_OUT_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
 } from './constants';
 import ColorWheel from './components/ColorWheel';
 import LightnessSlider from './components/LightnessSlider';
@@ -109,7 +109,12 @@ export default function NotesApp() {
       return prevId === nextId ? prev : user;
     });
   }
-  const [sharedOutCloudIds, setSharedOutCloudIds] = useState(() => new Set());
+  // Cached locally (not just kept in memory) so a note you've shared out
+  // doesn't flash into the main list on every refresh -- this starts as an
+  // empty Set otherwise, and the Supabase query that actually knows which
+  // notes are shared is async, so for a brief window right after load the
+  // filter that's supposed to hide a shared note doesn't know about it yet.
+  const [sharedOutCloudIds, setSharedOutCloudIds] = useState(() => new Set(loadLocal(SHARED_OUT_KEY) || []));
   const [acceptsConnections, setAcceptsConnectionsState] = useState(true);
   const [syncStatus, setSyncStatus] = useState('idle');
   const [syncError, setSyncError] = useState('');
@@ -649,16 +654,30 @@ export default function NotesApp() {
   // Notes I've shared out with a connection should only show in Connected
   // Notes, not clutter the main list too — track which of my cloud note ids
   // currently have an active share so liveNotes can filter them out.
+  const hadSyncUserForSharesRef = useRef(!!syncUser);
   useEffect(() => {
+    // `syncUser` is null both "haven't checked auth yet" (every mount,
+    // however briefly, even for an already-signed-in user) and "genuinely
+    // signed out" -- clearing the cache on the former would wipe it right
+    // back to empty before it ever gets used, recreating the exact flash
+    // this cache exists to prevent. Only clear on an actual signed-in ->
+    // signed-out transition.
+    const hadUser = hadSyncUserForSharesRef.current;
+    hadSyncUserForSharesRef.current = !!syncUser;
     if (!supabaseEnabled || !syncUser) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resets local cache when auth state (an external system) changes, not render-driven
-      setSharedOutCloudIds(new Set());
+      if (hadUser) {
+        setSharedOutCloudIds(new Set());
+        saveLocal(SHARED_OUT_KEY, []);
+      }
       return;
     }
     let cancelled = false;
     async function loadSharedOut() {
       const { data } = await supabase.from('note_shares').select('note_id').eq('owner_id', syncUser.id);
-      if (!cancelled) setSharedOutCloudIds(new Set((data || []).map((r) => r.note_id)));
+      if (cancelled) return;
+      const ids = (data || []).map((r) => r.note_id);
+      setSharedOutCloudIds(new Set(ids));
+      saveLocal(SHARED_OUT_KEY, ids);
     }
     loadSharedOut();
     const channel = supabase
