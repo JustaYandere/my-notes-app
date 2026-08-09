@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { supabase, supabaseEnabled } from '../lib/supabaseClient';
 import { saveNotesLocal } from '../utils/attachmentStorage';
+import { SEED_NOTES } from '../constants';
+
+// Used to recognize a note that's still exactly the default starter content
+// shown before this device knows a signed-in account's real cloud state
+// (most commonly: local storage got cleared for an already-synced account,
+// so hydration fell back to the built-in seed notes). Comparing content
+// rather than just id: a genuinely new note the user created, or one they
+// edited starting from a seed note, must still sync normally -- only an
+// untouched placeholder gets dropped here.
+const SEED_FINGERPRINTS = new Map(SEED_NOTES.map((n) => [n.id, JSON.stringify([
+  (n.title || '').trim(), (n.body || '').trim(), (n.checklist || []).map((it) => `${it.text}:${it.checked}`),
+])]));
+function isPristineSeedNote(note) {
+  const fp = SEED_FINGERPRINTS.get(note.id);
+  if (!fp) return false;
+  return fp === JSON.stringify([(note.title || '').trim(), (note.body || '').trim(), (note.checklist || []).map((it) => `${it.text}:${it.checked}`)]);
+}
 
 // Module-level, not per-hook-instance: if the app somehow ends up with more
 // than one active copy of this hook pulling for the same account at once
@@ -338,14 +355,17 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   // the cloud every single time, which is worse than doing nothing.
   useEffect(() => {
     if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError) return;
-    const missing = notes.filter((n) => !n.cloudId);
-    if (missing.length > 0) {
-      console.log(`[sync] assigning fresh cloudId to ${missing.length} note(s) that don't have one`, missing.map((n) => ({ id: n.id, title: n.title })));
-      const withIds = notesRef.current.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() }));
-      notesRef.current = withIds;
-      setNotes(withIds);
-      saveNotesLocal(withIds);
-    }
+    const current = notesRef.current;
+    const staleSeedIds = new Set(current.filter((n) => !n.cloudId && isPristineSeedNote(n)).map((n) => n.id));
+    if (staleSeedIds.size > 0) console.log(`[sync] dropping ${staleSeedIds.size} untouched starter note(s) instead of syncing them as new`, [...staleSeedIds]);
+    const withoutStaleSeeds = staleSeedIds.size > 0 ? current.filter((n) => !staleSeedIds.has(n.id)) : current;
+    const missing = withoutStaleSeeds.filter((n) => !n.cloudId);
+    if (staleSeedIds.size === 0 && missing.length === 0) return;
+    if (missing.length > 0) console.log(`[sync] assigning fresh cloudId to ${missing.length} note(s) that don't have one`, missing.map((n) => ({ id: n.id, title: n.title })));
+    const withIds = withoutStaleSeeds.map((n) => (n.cloudId ? n : { ...n, cloudId: crypto.randomUUID() }));
+    notesRef.current = withIds;
+    setNotes(withIds);
+    saveNotesLocal(withIds);
   }, [notes, syncUser, setNotes, localSaveError]);
 
   useEffect(() => {
