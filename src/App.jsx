@@ -254,6 +254,9 @@ export default function NotesApp() {
   const settingsSectionHistoryPushed = useRef(false);
   const tagFilterHistoryPushed = useRef(false);
   const newNoteSetupHistoryPushed = useRef(false);
+  const trashHistoryPushed = useRef(false);
+  const hiddenHistoryPushed = useRef(false);
+  const backupListHistoryPushed = useRef(false);
   const suppressBackNav = useRef(false);
   // Set right before we call window.history.back()/go() ourselves (closing
   // a note/settings/etc. via an on-screen button, not the hardware back
@@ -763,7 +766,16 @@ export default function NotesApp() {
   useEffect(() => {
     function onPopState() {
       suppressBackNav.current = true;
-      if (settingsOpen && settingsSection) {
+      if (backupListOpen) {
+        backupListHistoryPushed.current = false;
+        setBackupListOpen(false);
+      } else if (trashOpen) {
+        trashHistoryPushed.current = false;
+        setTrashOpen(false);
+      } else if (hiddenOpen) {
+        hiddenHistoryPushed.current = false;
+        setHiddenOpen(false);
+      } else if (settingsOpen && settingsSection) {
         settingsSectionHistoryPushed.current = false;
         setSettingsSection(null);
       } else if (settingsOpen) closeSettings();
@@ -858,6 +870,33 @@ export default function NotesApp() {
       connectedNotesHistoryPushed.current = false;
     }
   }, [connectedNotesOpen]);
+
+  useEffect(() => {
+    if (trashOpen && !trashHistoryPushed.current) {
+      window.history.pushState({ layer: 'trash' }, '');
+      trashHistoryPushed.current = true;
+    } else if (!trashOpen) {
+      trashHistoryPushed.current = false;
+    }
+  }, [trashOpen]);
+
+  useEffect(() => {
+    if (hiddenOpen && !hiddenHistoryPushed.current) {
+      window.history.pushState({ layer: 'hidden' }, '');
+      hiddenHistoryPushed.current = true;
+    } else if (!hiddenOpen) {
+      hiddenHistoryPushed.current = false;
+    }
+  }, [hiddenOpen]);
+
+  useEffect(() => {
+    if (backupListOpen && !backupListHistoryPushed.current) {
+      window.history.pushState({ layer: 'backupList' }, '');
+      backupListHistoryPushed.current = true;
+    } else if (!backupListOpen) {
+      backupListHistoryPushed.current = false;
+    }
+  }, [backupListOpen]);
 
   useEffect(() => {
     if (selectedTagFilters.length > 0 && !tagFilterHistoryPushed.current) {
@@ -1216,6 +1255,27 @@ export default function NotesApp() {
     setConnectedNotesOpen(false);
     if (connectedNotesHistoryPushed.current) {
       connectedNotesHistoryPushed.current = false;
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
+    }
+  }
+  function closeTrash() {
+    setTrashOpen(false);
+    if (trashHistoryPushed.current) {
+      trashHistoryPushed.current = false;
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
+    }
+  }
+  function closeHidden() {
+    setHiddenOpen(false);
+    if (hiddenHistoryPushed.current) {
+      hiddenHistoryPushed.current = false;
+      if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
+    }
+  }
+  function closeBackupList() {
+    setBackupListOpen(false);
+    if (backupListHistoryPushed.current) {
+      backupListHistoryPushed.current = false;
       if (!suppressBackNav.current) { selfTriggeredBackRef.current = true; window.history.back(); }
     }
   }
@@ -1682,7 +1742,7 @@ export default function NotesApp() {
     setNotes(payload.notes);
     if (Array.isArray(payload.customColors) && payload.customColors.length) setCustomColors(payload.customColors);
     if (Array.isArray(payload.customThemes) && payload.customThemes.length) setCustomThemes(payload.customThemes);
-    setBackupListOpen(false);
+    closeBackupList();
   }
   function triggerImport() { fileInputRef.current?.click(); }
   function triggerBgImageUpload() { bgImageInputRef.current?.click(); }
@@ -1780,7 +1840,7 @@ export default function NotesApp() {
     const now = Date.now();
     const imported = files.map((file, i) => ({
       id: nextId.current++,
-      title: file.name.replace(/\.txt$/i, ''),
+      title: file.name.replace(/\.(txt|md)$/i, ''),
       body: contents[i],
       checklist: [],
       color: customColors[0]?.id,
@@ -2784,7 +2844,7 @@ export default function NotesApp() {
       )}
 
       <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFile} style={{ display: 'none' }} />
-      <input ref={txtImportInputRef} type="file" accept=".txt,text/plain" multiple onChange={handleImportTxtFiles} style={{ display: 'none' }} />
+      <input ref={txtImportInputRef} type="file" accept=".txt,.md,text/plain,text/markdown" multiple onChange={handleImportTxtFiles} style={{ display: 'none' }} />
       <input ref={bgImageInputRef} type="file" accept="image/*" onChange={handleBgImageFile} style={{ display: 'none' }} />
       <input ref={ambientSoundInputRef} type="file" accept="audio/*" onChange={handleAmbientSoundFile} style={{ display: 'none' }} />
 
@@ -2801,7 +2861,7 @@ export default function NotesApp() {
                   </button>
                 )}
                 <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>
-                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'quickNoteColor' ? 'New color' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'account' ? 'Account' : 'Settings'}
+                  {settingsSection === 'colors' ? 'Colors' : settingsSection === 'quickNoteColor' ? 'New color' : settingsSection === 'text' ? 'Text' : settingsSection === 'view' ? 'View' : settingsSection === 'other' ? 'Other' : settingsSection === 'hiddenOptions' ? 'Hidden options' : settingsSection === 'account' ? 'Account' : 'Settings'}
                 </h2>
               </div>
               <button onClick={closeSettings} aria-label="Close settings" title="Close settings" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
@@ -2823,6 +2883,9 @@ export default function NotesApp() {
                 </button>
                 <button onClick={() => setSettingsSection('other')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
                   <SlidersHorizontal size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Other</span> <ChevronRight size={16} style={{ color: muted }} />
+                </button>
+                <button onClick={() => setSettingsSection('hiddenOptions')} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '12px 14px', fontSize: 15, cursor: 'pointer' }}>
+                  <EyeOff size={17} /> <span style={{ flex: 1, textAlign: 'left' }}>Hidden options</span> <ChevronRight size={16} style={{ color: muted }} />
                 </button>
               </div>
             )}
@@ -3137,31 +3200,14 @@ export default function NotesApp() {
                   {cleanupStatus && <p style={{ fontSize: 12, color: muted, margin: '2px 0 0' }}>{cleanupStatus}</p>}
                 </div>
 
-                <div style={{ borderTop: borderStyle, paddingTop: 16, marginBottom: 16 }}>
-                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Hidden options</label>
-                  <p style={{ fontSize: 12, color: muted, margin: '0 0 10px' }}>Hold (or right-click) any button in a note or selection menu to hide it. Uncheck here to bring one back.</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {HIDEABLE_ITEMS.map((item) => (
-                      <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={!isSettingHidden(item.id)}
-                          onChange={(e) => setHiddenSettings((prev) => (e.target.checked ? prev.filter((id) => id !== item.id) : (prev.includes(item.id) ? prev : [...prev, item.id])))}
-                        />
-                        {item.label}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Backup (notes, colors, settings)</label>
                   <button onClick={exportAll} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Export backup (.json)</button>
                   <button onClick={exportAllAsMarkdown} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><FileText size={15} /> Export all notes (.md)</button>
                   <button onClick={triggerImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Upload size={15} /> Import backup (.json)</button>
                   <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>Importing replaces all current notes — export first if you want a copy of what's there now.</p>
-                  <button onClick={triggerTxtImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer', marginTop: 4 }}><Upload size={15} /> Import notes (.txt files)</button>
-                  <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>For moving notes in from another app (like ColorNote) that exports one text file per note — select as many as you want at once. These are added alongside your current notes, nothing gets replaced.</p>
+                  <button onClick={triggerTxtImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer', marginTop: 4 }}><Upload size={15} /> Import notes (.txt/.md files)</button>
+                  <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>For moving notes in from another app (like ColorNote) that exports one text or Markdown file per note — select as many as you want at once. These are added alongside your current notes, nothing gets replaced.</p>
                 </div>
 
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -3189,6 +3235,24 @@ export default function NotesApp() {
                     )
                   )}
                   {backupStatus && <p style={{ fontSize: 12, color: muted, margin: '2px 0 0' }}>{backupStatus}</p>}
+                </div>
+              </>
+            )}
+
+            {settingsSection === 'hiddenOptions' && (
+              <>
+                <p style={{ fontSize: 13, color: muted, margin: '0 0 14px' }}>Hold (or right-click) any button in a note or selection menu to hide it. Uncheck here to bring one back.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {HIDEABLE_ITEMS.map((item) => (
+                    <label key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={!isSettingHidden(item.id)}
+                        onChange={(e) => setHiddenSettings((prev) => (e.target.checked ? prev.filter((id) => id !== item.id) : (prev.includes(item.id) ? prev : [...prev, item.id])))}
+                      />
+                      {item.label}
+                    </label>
+                  ))}
                 </div>
               </>
             )}
@@ -3289,11 +3353,11 @@ export default function NotesApp() {
       )}
 
       {trashOpen && (
-        <div onClick={() => setTrashOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
+        <div onClick={closeTrash} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Trash</h2>
-              <button onClick={() => setTrashOpen(false)} aria-label="Close trash" title="Close trash" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={closeTrash} aria-label="Close trash" title="Close trash" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
             {trashedNotes.length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>Trash is empty.</p>
@@ -3323,11 +3387,11 @@ export default function NotesApp() {
       )}
 
       {backupListOpen && (
-        <div onClick={() => setBackupListOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
+        <div onClick={closeBackupList} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Backups</h2>
-              <button onClick={() => setBackupListOpen(false)} aria-label="Close backups" title="Close backups" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={closeBackupList} aria-label="Close backups" title="Close backups" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
             {backupList.length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>No automatic backups yet — check back after your first one runs (every ~2 weeks), or use "Back up now" in Settings.</p>
@@ -3365,11 +3429,11 @@ export default function NotesApp() {
       )}
 
       {hiddenOpen && (
-        <div onClick={() => setHiddenOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
+        <div onClick={closeHidden} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Hidden notes</h2>
-              <button onClick={() => setHiddenOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+              <button onClick={closeHidden} aria-label="Close" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
             {hiddenNotes.length === 0 ? (
               <p style={{ color: muted, fontSize: 14 }}>No hidden notes.</p>
@@ -3378,7 +3442,7 @@ export default function NotesApp() {
                 {hiddenNotes.map((note) => {
                   const colorHex = colorHexOf(note.color);
                   return (
-                    <div key={note.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, background: dark ? `${colorHex}1A` : `${colorHex}17`, border: `1px solid ${colorHex}40`, cursor: 'pointer' }} onClick={() => { setHiddenOpen(false); startEditing(note); }}>
+                    <div key={note.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, background: dark ? `${colorHex}1A` : `${colorHex}17`, border: `1px solid ${colorHex}40`, cursor: 'pointer' }} onClick={() => { closeHidden(); startEditing(note); }}>
                       <div style={{ width: 10, height: 10, borderRadius: '50%', background: colorHex, flexShrink: 0 }} />
                       <div style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.title || 'Untitled'}</div>
                       <button onClick={(e) => { e.stopPropagation(); unhideNote(note.id); }} aria-label="Unhide note" title="Unhide" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex', padding: 4 }}><Eye size={16} /></button>
