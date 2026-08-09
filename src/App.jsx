@@ -1619,7 +1619,7 @@ export default function NotesApp() {
   // Point-in-time disaster-recovery snapshots, kept separate from the live
   // synced data on purpose -- if a sync bug or a mistaken bulk delete ever
   // corrupts or wipes the real notes, these exist outside that path
-  // entirely and survive it. Every ~2 weeks, keeping ~3 months of history.
+  // entirely and survive it. Every ~2 weeks, keeping ~2 months of history.
   async function runBackupNow(manual) {
     const payload = buildBackupPayload();
     const timestamp = await saveSnapshot(payload);
@@ -3081,7 +3081,7 @@ export default function NotesApp() {
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Automatic backups</label>
                   <p style={{ fontSize: 12, color: muted, margin: '0 0 2px' }}>
-                    A snapshot is saved automatically every 2 weeks, kept for about 3 months, separate from your synced notes — so a sync problem can't take a backup down with it.
+                    A snapshot is saved automatically every 2 weeks, kept for about 2 months, separate from your synced notes — so a sync problem can't take a backup down with it.
                     {' '}{lastBackupAt ? `Last backup: ${new Date(lastBackupAt).toLocaleString()}.` : 'No backup yet.'}
                   </p>
                   <button onClick={() => runBackupNow(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Back up now</button>
