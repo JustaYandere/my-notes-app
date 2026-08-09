@@ -1,5 +1,5 @@
 // Bumped by 0.01 with each pushed update so it's easy to confirm a deploy landed.
-export const APP_VERSION = '1.07';
+export const APP_VERSION = '1.08';
 
 export const FONT_OPTIONS = {
   classic: { label: 'Classic', title: "'Fraunces', serif", body: "'Inter', sans-serif" },
@@ -44,7 +44,8 @@ export const SCALE_MAP = { compact: 0.85, comfortable: 1, large: 1.2, xl: 1.4 };
 export const NOTES_KEY = 'makinote_notes_v1';
 export const SETTINGS_KEY = 'makinote_settings_v1';
 export const SHARED_OUT_KEY = 'makinote_shared_out_v1';
-export const LEGACY_NOTES_KEY = 'colornote_clone_notes_v7';
-export const LEGACY_SETTINGS_KEY = 'colornote_clone_settings_v7';
+export const LAST_BACKUP_AT_KEY = 'makinote_last_backup_at';
 export const MAX_HISTORY = 50;
 export const MAX_CUSTOM = 20;
+export const BACKUP_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000; // 2 weeks
+export const BACKUP_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // ~3 months

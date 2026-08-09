@@ -14,8 +14,12 @@ import {
 } from './utils/noteHelpers';
 import { saveNotesLocal, loadNotesLocal, saveSettingsLocal, hydrateAttachments } from './utils/attachmentStorage';
 import {
+  saveSnapshot, pruneOldSnapshots, listSnapshotTimestamps, getSnapshot,
+  saveFolderHandle, getFolderHandle, clearFolderHandle, writeFolderBackup, pruneFolderBackups,
+} from './utils/backupStore';
+import {
   APP_VERSION, FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
-  SETTINGS_KEY, SHARED_OUT_KEY, LEGACY_NOTES_KEY, LEGACY_SETTINGS_KEY, MAX_HISTORY, MAX_CUSTOM,
+  SETTINGS_KEY, SHARED_OUT_KEY, LAST_BACKUP_AT_KEY, MAX_HISTORY, MAX_CUSTOM, BACKUP_INTERVAL_MS, BACKUP_RETENTION_MS,
 } from './constants';
 import ColorWheel from './components/ColorWheel';
 import LightnessSlider from './components/LightnessSlider';
@@ -202,6 +206,11 @@ export default function NotesApp() {
   const [localSaveError, setLocalSaveError] = useState(false);
   const [cleanupNotice, setCleanupNotice] = useState('');
   const [massRemovalWarning, setMassRemovalWarning] = useState('');
+  const [backupFolderName, setBackupFolderName] = useState('');
+  const [lastBackupAt, setLastBackupAt] = useState(() => Number(loadLocal(LAST_BACKUP_AT_KEY)) || 0);
+  const [backupStatus, setBackupStatus] = useState('');
+  const [backupListOpen, setBackupListOpen] = useState(false);
+  const [backupList, setBackupList] = useState([]);
   const [hiddenSettings, setHiddenSettings] = useState([]);
   const [hideConfirm, setHideConfirm] = useState(null); // { id, label, x, y }
   const holdToHideTimer = useRef(null);
@@ -395,11 +404,7 @@ export default function NotesApp() {
   function colorHexOf(colorId) { return customColors.find((c) => c.id === colorId)?.hex || customColors[0]?.hex || '#5B9BB8'; }
 
   useLayoutEffect(() => {
-    let savedNotes = loadNotesLocal();
-    if (!savedNotes) {
-      const legacyNotes = loadLocal(LEGACY_NOTES_KEY);
-      if (legacyNotes) { savedNotes = legacyNotes; saveNotesLocal(legacyNotes); }
-    }
+    const savedNotes = loadNotesLocal();
     let finalNotesForAttachmentHydration = SEED_NOTES;
     if (Array.isArray(savedNotes) && savedNotes.length) {
       let initialNotes = savedNotes.map((n) => ({ checklist: [], pinned: false, hidden: false, tags: [], mode: 'note', voiceNotes: [], images: [], ...n }));
@@ -496,11 +501,7 @@ export default function NotesApp() {
       // the current `notes` state, so new ids must start past their max.
       nextId.current = Math.max(4, ...SEED_NOTES.map((n) => (n.id || 0) + 1));
     }
-    let savedSettings = loadLocal(SETTINGS_KEY);
-    if (!savedSettings) {
-      const legacySettings = loadLocal(LEGACY_SETTINGS_KEY);
-      if (legacySettings) { savedSettings = legacySettings; saveSettingsLocal(legacySettings); }
-    }
+    const savedSettings = loadLocal(SETTINGS_KEY);
     if (savedSettings) {
       // Base the next-id counters on the highest numeric id actually present
       // (not just the array length) — items can be deleted and re-added
@@ -573,6 +574,18 @@ export default function NotesApp() {
       setHydrated(true);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    (async () => {
+      const handle = await getFolderHandle();
+      if (!cancelled && handle) setBackupFolderName(handle.name);
+      if (!cancelled && Date.now() - lastBackupAt >= BACKUP_INTERVAL_MS) await runBackupNow(false);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated || !autoSave) return;
@@ -1596,9 +1609,77 @@ export default function NotesApp() {
     }
   }
 
+  function buildBackupPayload() {
+    return { version: 9, notes, customColors, customThemes, settings: { activeThemeId, modalTint, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, similarThreshold } };
+  }
   function exportAll() {
-    const payload = { version: 9, notes, customColors, customThemes, settings: { activeThemeId, modalTint, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, similarThreshold } };
-    downloadBlob(JSON.stringify(payload, null, 2), `notes-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+    downloadBlob(JSON.stringify(buildBackupPayload(), null, 2), `notes-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+  }
+
+  // Point-in-time disaster-recovery snapshots, kept separate from the live
+  // synced data on purpose -- if a sync bug or a mistaken bulk delete ever
+  // corrupts or wipes the real notes, these exist outside that path
+  // entirely and survive it. Every ~2 weeks, keeping ~3 months of history.
+  async function runBackupNow(manual) {
+    const payload = buildBackupPayload();
+    const timestamp = await saveSnapshot(payload);
+    await pruneOldSnapshots(BACKUP_RETENTION_MS);
+    let folderMessage = '';
+    const handle = await getFolderHandle();
+    if (handle) {
+      try {
+        // A silent, page-load-triggered write needs permission already
+        // granted from a previous visit -- browsers don't allow a fresh
+        // permission prompt without a real user gesture, so this only
+        // actually writes if that's already in place. A manual "Back up
+        // now" click IS a user gesture, so it can prompt if needed.
+        const already = await handle.queryPermission({ mode: 'readwrite' });
+        const granted = already === 'granted' || (manual && (await handle.requestPermission({ mode: 'readwrite' })) === 'granted');
+        if (granted) {
+          await writeFolderBackup(handle, timestamp, JSON.stringify(payload, null, 2));
+          await pruneFolderBackups(handle, BACKUP_RETENTION_MS);
+          folderMessage = ` and to your backup folder`;
+        } else if (manual) {
+          folderMessage = ' (folder access needs to be re-granted — try "Choose backup folder" again)';
+        }
+      } catch (err) {
+        console.error('Folder backup failed:', err);
+        if (manual) folderMessage = ' (folder write failed — see console)';
+      }
+    }
+    saveLocal(LAST_BACKUP_AT_KEY, timestamp);
+    setLastBackupAt(timestamp);
+    if (manual) { setBackupStatus(`Backed up${folderMessage}.`); setTimeout(() => setBackupStatus(''), 4000); }
+  }
+  async function chooseBackupFolder() {
+    if (!window.showDirectoryPicker) return;
+    try {
+      const handle = await window.showDirectoryPicker({ id: 'makinote-backups', mode: 'readwrite' });
+      const permission = await handle.requestPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') return;
+      await saveFolderHandle(handle);
+      setBackupFolderName(handle.name);
+    } catch (err) {
+      if (err.name !== 'AbortError') console.error('Choosing backup folder failed:', err);
+    }
+  }
+  async function removeBackupFolder() {
+    await clearFolderHandle();
+    setBackupFolderName('');
+  }
+  async function openBackupList() {
+    setBackupList(await listSnapshotTimestamps());
+    setBackupListOpen(true);
+  }
+  async function restoreFromBackup(timestamp) {
+    const payload = await getSnapshot(timestamp);
+    if (!payload || !Array.isArray(payload.notes)) return;
+    if (!window.confirm(`Restore your notes to how they were on ${new Date(timestamp).toLocaleString()}? Your current notes will be replaced (Undo can bring them back after).`)) return;
+    pushHistory();
+    setNotes(payload.notes);
+    if (Array.isArray(payload.customColors) && payload.customColors.length) setCustomColors(payload.customColors);
+    if (Array.isArray(payload.customThemes) && payload.customThemes.length) setCustomThemes(payload.customThemes);
+    setBackupListOpen(false);
   }
   function triggerImport() { fileInputRef.current?.click(); }
   function triggerBgImageUpload() { bgImageInputRef.current?.click(); }
@@ -2996,6 +3077,27 @@ export default function NotesApp() {
                   <button onClick={triggerImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Upload size={15} /> Import backup (.json)</button>
                   <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>Importing replaces all current notes — export first if you want a copy of what's there now.</p>
                 </div>
+
+                <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Automatic backups</label>
+                  <p style={{ fontSize: 12, color: muted, margin: '0 0 2px' }}>
+                    A snapshot is saved automatically every 2 weeks, kept for about 3 months, separate from your synced notes — so a sync problem can't take a backup down with it.
+                    {' '}{lastBackupAt ? `Last backup: ${new Date(lastBackupAt).toLocaleString()}.` : 'No backup yet.'}
+                  </p>
+                  <button onClick={() => runBackupNow(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Back up now</button>
+                  <button onClick={openBackupList} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Archive size={15} /> View &amp; restore backups</button>
+                  {typeof window !== 'undefined' && window.showDirectoryPicker && (
+                    backupFolderName ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                        <span style={{ flex: 1, color: muted }}>Also saving to folder: <strong style={{ color: text }}>{backupFolderName}</strong></span>
+                        <button onClick={removeBackupFolder} style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', fontSize: 12, padding: 0 }}>Remove</button>
+                      </div>
+                    ) : (
+                      <button onClick={chooseBackupFolder} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Folder size={15} /> Also back up to a folder on this device</button>
+                    )
+                  )}
+                  {backupStatus && <p style={{ fontSize: 12, color: muted, margin: '2px 0 0' }}>{backupStatus}</p>}
+                </div>
               </>
             )}
 
@@ -3123,6 +3225,30 @@ export default function NotesApp() {
                 </div>
                 <button onClick={emptyTrash} style={{ width: '100%', background: 'none', border: '1px solid #E8735F80', color: '#E8735F', borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer' }}>Empty Trash</button>
               </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {backupListOpen && (
+        <div onClick={() => setBackupListOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, zIndex: 75 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, maxHeight: '80vh', overflowY: 'auto', overscrollBehavior: 'contain', background: elevated, borderRadius: 16, border: borderStyle, padding: 22, color: text }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+              <h2 style={{ fontFamily: "'Fraunces', serif", fontStyle: 'italic', fontWeight: 500, fontSize: 22, margin: 0 }}>Backups</h2>
+              <button onClick={() => setBackupListOpen(false)} aria-label="Close backups" title="Close backups" style={{ background: 'none', border: 'none', color: text, cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
+            </div>
+            {backupList.length === 0 ? (
+              <p style={{ color: muted, fontSize: 14 }}>No automatic backups yet — check back after your first one runs (every ~2 weeks), or use "Back up now" in Settings.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {backupList.map((timestamp) => (
+                  <div key={timestamp} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10, borderRadius: 10, background: bg, border: borderStyle }}>
+                    <Archive size={16} style={{ flexShrink: 0, opacity: 0.7 }} />
+                    <div style={{ flex: 1, fontSize: 14 }}>{new Date(timestamp).toLocaleString()}</div>
+                    <button onClick={() => restoreFromBackup(timestamp)} style={{ background: 'none', border: borderStyle, color: text, cursor: 'pointer', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}>Restore</button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>
