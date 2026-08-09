@@ -2379,18 +2379,26 @@ export default function NotesApp() {
           </div>
         )}
 
-        {connectedNotesOpen ? (
-          <ConnectedNotesView
-            syncUser={syncUser}
-            onOpen={openSharedNote}
-            onCreateForConnection={createNoteForConnection}
-            colorHexOf={colorHexOf}
-            text={text}
-            muted={muted}
-            bg={bg}
-            borderStyle={borderStyle}
-          />
-        ) : (
+        {syncUser && (
+          // Kept mounted (just hidden) rather than conditionally rendered so
+          // switching tabs doesn't unmount it -- unmounting was throwing away
+          // its already-fetched data and the realtime subscription keeping it
+          // current, forcing a full multi-second reload from scratch every
+          // single time you switched back to this tab.
+          <div style={{ display: connectedNotesOpen ? 'block' : 'none' }}>
+            <ConnectedNotesView
+              syncUser={syncUser}
+              onOpen={openSharedNote}
+              onCreateForConnection={createNoteForConnection}
+              colorHexOf={colorHexOf}
+              text={text}
+              muted={muted}
+              bg={bg}
+              borderStyle={borderStyle}
+            />
+          </div>
+        )}
+        <div style={{ display: connectedNotesOpen ? 'none' : 'block' }}>
           <>
         <div style={{ background: elevated, border: borderStyle, borderRadius: 14, marginBottom: 6, boxSizing: 'border-box', overflow: 'hidden' }}>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ width: '100%', boxSizing: 'border-box', background: 'transparent', color: text, fontWeight: 600, border: 'none', outline: 'none', padding: '12px 16px', fontSize: 14, cursor: 'pointer' }}>
@@ -2578,7 +2586,7 @@ export default function NotesApp() {
           </div>
         )}
           </>
-        )}
+        </div>
       </div>
 
       {selectedNoteIds.length === 0 && (
