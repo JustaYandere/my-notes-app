@@ -233,6 +233,7 @@ export default function NotesApp() {
   const nextSepColorId = useRef(5);
   const nextThemeId = useRef(2);
   const fileInputRef = useRef(null);
+  const txtImportInputRef = useRef(null);
   const bgImageInputRef = useRef(null);
   const ambientSoundInputRef = useRef(null);
   const textareaRefs = useRef({});
@@ -1758,6 +1759,51 @@ export default function NotesApp() {
     e.target.value = '';
   }
 
+  function triggerTxtImport() { txtImportInputRef.current?.click(); }
+  // For migrating in from apps that export one plain-text file per note
+  // (ColorNote and most simple notepad apps work this way, with no public
+  // API to connect to directly) -- unlike the JSON backup import above,
+  // this adds to your existing notes rather than replacing them, since
+  // that's what "bring these in from somewhere else" actually means here.
+  async function handleImportTxtFiles(e) {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    const readAsText = (file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => resolve('');
+      reader.readAsText(file);
+    });
+    const contents = await Promise.all(files.map(readAsText));
+    const now = Date.now();
+    const imported = files.map((file, i) => ({
+      id: nextId.current++,
+      title: file.name.replace(/\.txt$/i, ''),
+      body: contents[i],
+      checklist: [],
+      color: customColors[0]?.id,
+      pinned: false,
+      hidden: false,
+      tags: [],
+      mode: 'note',
+      // Offset so files keep the order they were selected in when sorted
+      // by "Newest first" or "Recently edited" instead of all landing on
+      // the exact same millisecond.
+      createdAt: now + i,
+      updatedAt: now + i,
+      deletedAt: null,
+      reminderAt: null,
+      reminderNotified: false,
+      voiceNotes: [],
+      images: [],
+    }));
+    pushHistory();
+    setNotes([...notes, ...imported]);
+    setActionToast(`Imported ${imported.length} note${imported.length === 1 ? '' : 's'}`);
+    setTimeout(() => setActionToast(''), 2000);
+    e.target.value = '';
+  }
+
   function saveCustomColor() {
     if (customColors.length >= MAX_CUSTOM) return;
     const [r, g, b] = hslToRgb(wheelHue, wheelSat, wheelLight);
@@ -2736,6 +2782,7 @@ export default function NotesApp() {
       )}
 
       <input ref={fileInputRef} type="file" accept="application/json" onChange={handleImportFile} style={{ display: 'none' }} />
+      <input ref={txtImportInputRef} type="file" accept=".txt,text/plain" multiple onChange={handleImportTxtFiles} style={{ display: 'none' }} />
       <input ref={bgImageInputRef} type="file" accept="image/*" onChange={handleBgImageFile} style={{ display: 'none' }} />
       <input ref={ambientSoundInputRef} type="file" accept="audio/*" onChange={handleAmbientSoundFile} style={{ display: 'none' }} />
 
@@ -3111,6 +3158,8 @@ export default function NotesApp() {
                   <button onClick={exportAllAsMarkdown} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><FileText size={15} /> Export all notes (.md)</button>
                   <button onClick={triggerImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Upload size={15} /> Import backup (.json)</button>
                   <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>Importing replaces all current notes — export first if you want a copy of what's there now.</p>
+                  <button onClick={triggerTxtImport} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer', marginTop: 4 }}><Upload size={15} /> Import notes (.txt files)</button>
+                  <p style={{ fontSize: 12, color: muted, margin: '4px 0 0' }}>For moving notes in from another app (like ColorNote) that exports one text file per note — select as many as you want at once. These are added alongside your current notes, nothing gets replaced.</p>
                 </div>
 
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
