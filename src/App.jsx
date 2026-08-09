@@ -673,8 +673,14 @@ export default function NotesApp() {
     }
     let cancelled = false;
     async function loadSharedOut() {
-      const { data } = await supabase.from('note_shares').select('note_id').eq('owner_id', syncUser.id);
+      const { data, error } = await supabase.from('note_shares').select('note_id').eq('owner_id', syncUser.id);
       if (cancelled) return;
+      // A failed request (e.g. offline) isn't the same thing as "you have
+      // zero shares" -- treating it that way wiped the cache this exists to
+      // protect, right back to empty, which is exactly what let a shared-out
+      // note reappear in the main list while offline. Leave the existing
+      // cache alone until a request actually succeeds.
+      if (error) { console.error('Could not load shared-out notes:', error); return; }
       const ids = (data || []).map((r) => r.note_id);
       setSharedOutCloudIds(new Set(ids));
       saveLocal(SHARED_OUT_KEY, ids);
