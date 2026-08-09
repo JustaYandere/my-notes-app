@@ -15,7 +15,7 @@ import {
 import { saveNotesLocal, loadNotesLocal, saveSettingsLocal, hydrateAttachments } from './utils/attachmentStorage';
 import {
   saveSnapshot, pruneOldSnapshots, listSnapshotTimestamps, getSnapshot,
-  saveFolderHandle, getFolderHandle, clearFolderHandle, writeFolderBackup, pruneFolderBackups,
+  saveFolderHandle, getFolderHandle, clearFolderHandle, writeFolderBackup,
 } from './utils/backupStore';
 import {
   APP_VERSION, FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
@@ -720,9 +720,15 @@ export default function NotesApp() {
   }, [syncUser]);
 
   useEffect(() => {
-    document.body.style.overflow = editingId && !fullScreenEditor ? 'hidden' : '';
+    // Settings' own backdrop blocks clicks reaching the notes behind it, but
+    // never locked page scroll -- on touch devices a drag starting on that
+    // backdrop could still scroll (and notes could still be tapped through
+    // some gap) the main list behind it. Trash/Hidden/the backup list all
+    // only ever open from inside Settings, so gating on settingsOpen alone
+    // covers all of them without needing a state for each.
+    document.body.style.overflow = (editingId && !fullScreenEditor) || settingsOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
-  }, [editingId, fullScreenEditor]);
+  }, [editingId, fullScreenEditor, settingsOpen]);
 
   useEffect(() => {
     // If the exit didn't actually happen (Android just backgrounded the
@@ -766,7 +772,20 @@ export default function NotesApp() {
   useEffect(() => {
     function onPopState() {
       suppressBackNav.current = true;
-      if (backupListOpen) {
+      if (selfTriggeredBackRef.current) {
+        // This popstate is the echo of a window.history.back()/go() we
+        // fired ourselves (e.g. tapping a Back/X button, or backToSettingsHub
+        // stepping from a section to the settings hub), not an actual
+        // hardware/gesture back press. The state it was meant to close is
+        // already updated by the function that triggered it, by the time we
+        // get here -- checked first, before any of the branches below, since
+        // otherwise a *different*, coarser condition can still incidentally
+        // match (e.g. settingsOpen alone, once settingsSection has already
+        // been cleared to null by backToSettingsHub) and take an action
+        // nobody asked for, like closing all of Settings instead of just
+        // stepping back to its hub screen.
+        selfTriggeredBackRef.current = false;
+      } else if (backupListOpen) {
         backupListHistoryPushed.current = false;
         setBackupListOpen(false);
       } else if (trashOpen) {
@@ -814,13 +833,6 @@ export default function NotesApp() {
       } else if (selectedTagFilters.length > 0) {
         tagFilterHistoryPushed.current = false;
         setSelectedTagFilters([]);
-      } else if (selfTriggeredBackRef.current) {
-        // This popstate is the echo of a window.history.back()/go() we
-        // fired ourselves (e.g. tapping the note's own Back/X button), not
-        // an actual hardware/gesture back press — the state it was meant to
-        // close is already gone by the time we get here, so there's nothing
-        // left to match above. Don't treat it as the exit press.
-        selfTriggeredBackRef.current = false;
       } else {
         // Nothing left for us to close — this back press is the one that
         // actually exits. The OS's own closing transition happens outside
@@ -1488,6 +1500,7 @@ export default function NotesApp() {
     setNoteMenuOpen(false);
   }
   function exportAllAsMarkdown() {
+    if (!window.confirm(`Export all ${liveNotes.length} note(s) as a Markdown file?`)) return;
     const content = liveNotes.map(noteToMarkdown).join('\n---\n\n');
     downloadBlob(content, `notes-export-${new Date().toISOString().slice(0, 10)}.md`, 'text/markdown');
   }
@@ -1676,6 +1689,7 @@ export default function NotesApp() {
     return { version: 9, notes, customColors, customThemes, settings: { activeThemeId, modalTint, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, similarThreshold } };
   }
   function exportAll() {
+    if (!window.confirm(`Export a full backup (${notes.length} note(s), colors, and settings) as a .json file?`)) return;
     downloadBlob(JSON.stringify(buildBackupPayload(), null, 2), `notes-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
   }
 
@@ -1699,8 +1713,13 @@ export default function NotesApp() {
         const already = await handle.queryPermission({ mode: 'readwrite' });
         const granted = already === 'granted' || (manual && (await handle.requestPermission({ mode: 'readwrite' })) === 'granted');
         if (granted) {
+          // Unlike the in-app snapshots (pruned to ~2 months to bound how
+          // much space they eat in the browser's own storage), files
+          // written here are kept forever -- they're on the user's own
+          // disk, in a folder they explicitly chose, and deleting things
+          // out from under someone without being asked is worse than using
+          // a bit more disk space. Manual cleanup is on them.
           await writeFolderBackup(handle, timestamp, JSON.stringify(payload, null, 2));
-          await pruneFolderBackups(handle, BACKUP_RETENTION_MS);
           folderMessage = ` and to your backup folder`;
         } else if (manual) {
           folderMessage = ' (folder access needs to be re-granted — try "Choose backup folder" again)';
@@ -3102,40 +3121,6 @@ export default function NotesApp() {
                   See-through notes on the main menu (shows the rain/space background through them)
                 </label>
 
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={autoMoveCompleted} onChange={(e) => setAutoMoveCompleted(e.target.checked)} />
-                  Auto-move crossed-out text to the bottom (checklist items always do this)
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={confirmOnClose} onChange={(e) => setConfirmOnClose(e.target.checked)} />
-                  Ask to save before closing an edited note
-                </label>
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 8, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
-                  Auto-save notes as I type
-                </label>
-                {!autoSave && <p style={{ fontSize: 12, color: muted, margin: '0' }}>Auto-save is off — changes are kept in the app but won't survive a refresh until you save from within a note.</p>}
-              </>
-            )}
-
-            {settingsSection === 'other' && (
-              <>
-                {syncUser && (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle, cursor: 'pointer' }}>
-                    <input type="checkbox" checked={acceptsConnections} onChange={(e) => toggleAcceptsConnections(e.target.checked)} />
-                    Allow others to send me connection requests
-                  </label>
-                )}
-                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
-                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
-                  <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />
-                  <button onClick={() => { closeSettings(); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
-                    <GitCompare size={15} /> Find similar notes{similarPairs.length > 0 ? ` (${similarPairs.length})` : ''}
-                  </button>
-                </div>
-
                 <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
                   <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 8 }}>Main menu background</label>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -3186,6 +3171,40 @@ export default function NotesApp() {
                   )}
                 </div>
 
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={autoMoveCompleted} onChange={(e) => setAutoMoveCompleted(e.target.checked)} />
+                  Auto-move crossed-out text to the bottom (checklist items always do this)
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={confirmOnClose} onChange={(e) => setConfirmOnClose(e.target.checked)} />
+                  Ask to save before closing an edited note
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 8, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={autoSave} onChange={(e) => setAutoSave(e.target.checked)} />
+                  Auto-save notes as I type
+                </label>
+                {!autoSave && <p style={{ fontSize: 12, color: muted, margin: '0' }}>Auto-save is off — changes are kept in the app but won't survive a refresh until you save from within a note.</p>}
+              </>
+            )}
+
+            {settingsSection === 'other' && (
+              <>
+                {syncUser && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={acceptsConnections} onChange={(e) => toggleAcceptsConnections(e.target.checked)} />
+                    Allow others to send me connection requests
+                  </label>
+                )}
+                <div style={{ marginBottom: 20, paddingBottom: 18, borderBottom: borderStyle }}>
+                  <label style={{ fontSize: 13, color: muted, display: 'block', marginBottom: 6 }}>Similar-notes sensitivity: {Math.round(similarThreshold * 100)}% shared words</label>
+                  <input type="range" min={5} max={50} value={Math.round(similarThreshold * 100)} onChange={(e) => setSimilarThreshold(Number(e.target.value) / 100)} style={{ width: '100%', marginBottom: 10, ...rangeAccentStyle }} />
+                  <button onClick={() => { closeSettings(); setSimilarOpen(true); }} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
+                    <GitCompare size={15} /> Find similar notes{similarPairs.length > 0 ? ` (${similarPairs.length})` : ''}
+                  </button>
+                </div>
+
                 <div style={{ borderTop: borderStyle, paddingTop: 16, marginBottom: 16 }}>
                   <button onClick={openHiddenNotes} style={{ display: 'flex', alignItems: 'center', gap: 8, background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '9px 12px', fontSize: 14, cursor: 'pointer', width: '100%' }}>
                     <EyeOff size={15} /> Hidden notes{hiddenNotes.length > 0 ? ` (${hiddenNotes.length})` : ''}{pinEnabled ? ' — PIN required' : ''}
@@ -3227,7 +3246,7 @@ export default function NotesApp() {
                   {typeof window !== 'undefined' && window.showDirectoryPicker && (
                     backupFolderName ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                        <span style={{ flex: 1, color: muted }}>Also saving to folder: <strong style={{ color: text }}>{backupFolderName}</strong></span>
+                        <span style={{ flex: 1, color: muted }}>Also saving to folder (kept forever, not pruned): <strong style={{ color: text }}>{backupFolderName}</strong></span>
                         <button onClick={removeBackupFolder} style={{ background: 'none', border: 'none', color: '#E8735F', cursor: 'pointer', fontSize: 12, padding: 0 }}>Remove</button>
                       </div>
                     ) : (
