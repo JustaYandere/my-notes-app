@@ -30,7 +30,7 @@ import NoteImages from './components/NoteImages';
 import AccountPanel from './components/AccountPanel';
 import ConnectedAccounts from './components/ConnectedAccounts';
 import ShareNotePicker from './components/ShareNotePicker';
-import ConnectedNotesModal from './components/ConnectedNotesModal';
+import ConnectedNotesView from './components/ConnectedNotesView';
 import AmbientAudio from './components/AmbientAudio';
 import { useNotesSync } from './hooks/useNotesSync';
 import { useSettingsSync } from './hooks/useSettingsSync';
@@ -2354,11 +2354,6 @@ export default function NotesApp() {
             ) : (
               <button onClick={() => setSearchOpen(true)} aria-label="Search notes" title="Search notes" style={toolbarBtnStyle(false)}><Search size={16} /></button>
             )}
-            {syncUser && (
-              <button onClick={() => setConnectedNotesOpen(true)} aria-label="Connected notes" title="Connected notes" style={toolbarBtnStyle(false)}>
-                <Users size={16} />
-              </button>
-            )}
             {pinEnabled && <button onClick={() => setLocked(true)} aria-label="Lock now" title="Lock now" style={toolbarBtnStyle(false)}><Lock size={16} /></button>}
             <button onClick={() => setSettingsOpen(true)} aria-label="Settings" title={syncUser ? `Settings — signed in as ${syncUser.email}` : 'Settings'} style={toolbarBtnStyle(false)}>
               <Settings size={16} />
@@ -2367,6 +2362,36 @@ export default function NotesApp() {
           </div>
         </div>
 
+        {syncUser && (
+          <div style={{ display: 'flex', gap: 4, background: elevated, border: borderStyle, borderRadius: 12, padding: 4, marginBottom: 14 }}>
+            <button
+              onClick={() => { if (connectedNotesOpen) closeConnectedNotes(); }}
+              style={{ flex: 1, background: connectedNotesOpen ? 'transparent' : bg, color: connectedNotesOpen ? muted : text, border: 'none', borderRadius: 9, padding: '9px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              My Notes
+            </button>
+            <button
+              onClick={() => { if (!connectedNotesOpen) setConnectedNotesOpen(true); }}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: connectedNotesOpen ? bg : 'transparent', color: connectedNotesOpen ? text : muted, border: 'none', borderRadius: 9, padding: '9px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Users size={14} /> Connected
+            </button>
+          </div>
+        )}
+
+        {connectedNotesOpen ? (
+          <ConnectedNotesView
+            syncUser={syncUser}
+            onOpen={openSharedNote}
+            onCreateForConnection={createNoteForConnection}
+            colorHexOf={colorHexOf}
+            text={text}
+            muted={muted}
+            bg={bg}
+            borderStyle={borderStyle}
+          />
+        ) : (
+          <>
         <div style={{ background: elevated, border: borderStyle, borderRadius: 14, marginBottom: 6, boxSizing: 'border-box', overflow: 'hidden' }}>
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort notes by" style={{ width: '100%', boxSizing: 'border-box', background: 'transparent', color: text, fontWeight: 600, border: 'none', outline: 'none', padding: '12px 16px', fontSize: 14, cursor: 'pointer' }}>
             {SORT_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>Sort by: {opt.label}</option>)}
@@ -2551,6 +2576,8 @@ export default function NotesApp() {
               );
             })}
           </div>
+        )}
+          </>
         )}
       </div>
 
@@ -3329,21 +3356,6 @@ export default function NotesApp() {
             )}
           </div>
         </div>
-      )}
-
-      {connectedNotesOpen && (
-        <ConnectedNotesModal
-          syncUser={syncUser}
-          onClose={closeConnectedNotes}
-          onOpen={openSharedNote}
-          onCreateForConnection={createNoteForConnection}
-          colorHexOf={colorHexOf}
-          text={text}
-          muted={muted}
-          bg={bg}
-          elevated={elevated}
-          borderStyle={borderStyle}
-        />
       )}
 
       {newNoteSetupOpen && (
