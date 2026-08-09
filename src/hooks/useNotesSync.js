@@ -13,6 +13,9 @@ import { saveNotesLocal } from '../utils/attachmentStorage';
 // first pull for a given account actually runs.
 let pullInFlightForUserId = null;
 
+// Everything except images/voice_notes -- see the comment where this is used.
+const LIGHT_COLUMNS = 'id, user_id, title, body, mode, checklist, pinned, hidden, tags, color, reminder_at, reminder_notified, created_at, updated_at, deleted_at';
+
 function toCloudRow(note, userId) {
   return {
     id: note.cloudId,
@@ -80,6 +83,14 @@ async function withRetry(fn, attempts = 3) {
 // that's fully empty while the local note has real content is always more
 // likely a race than an intentional edit.
 function isBlankRow(row) {
+  if (row.images === undefined && row.voice_notes === undefined) {
+    // The fast metadata-only pull doesn't select these columns at all, so
+    // there's no way to know whether this row actually has attachments --
+    // assuming "not blank" here is the safe direction, since the whole
+    // point of this check is to avoid mistaking a real note for an empty
+    // one and letting it get overwritten.
+    return false;
+  }
   return !(row.title || '').trim() && !(row.body || '').trim()
     && (!row.checklist || row.checklist.length === 0)
     && (!row.voice_notes || row.voice_notes.length === 0)
@@ -92,7 +103,12 @@ function hasRealContent(note) {
     || (note.images || []).length > 0;
 }
 
-function fromCloudRow(row, localId) {
+// `existing` (the current local version of this note, if any) is used to
+// fill in images/voiceNotes when `row` came from the fast metadata-only
+// pull, which doesn't select those columns at all -- without this, merging
+// one of those rows over an existing note would wipe its already-synced
+// attachments back to empty until the background attachment pass catches up.
+function fromCloudRow(row, localId, existing) {
   return {
     id: localId,
     cloudId: row.id,
@@ -104,8 +120,8 @@ function fromCloudRow(row, localId) {
     hidden: !!row.hidden,
     tags: row.tags || [],
     color: row.color,
-    voiceNotes: row.voice_notes || [],
-    images: row.images || [],
+    voiceNotes: row.voice_notes !== undefined ? (row.voice_notes || []) : (existing?.voiceNotes || []),
+    images: row.images !== undefined ? (row.images || []) : (existing?.images || []),
     reminderAt: row.reminder_at ? new Date(row.reminder_at).getTime() : null,
     reminderNotified: !!row.reminder_notified,
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
@@ -150,6 +166,20 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
   // with a brand-new id and re-uploaded as a duplicate before the pull that
   // would have matched it by its real id has had a chance to land.
   const pulledForUserRef = useRef(null);
+  // Which signed-in user the background attachment pass (images/voice
+  // notes) has completed at least once for. Pushing before this is set
+  // risks sending this device's possibly-stale local attachment data (kept
+  // only as a placeholder until the real fetch lands) over a genuinely
+  // newer image/recording from another device -- worth the small delay to
+  // the first push after sign-in to rule that out.
+  const attachmentsPulledForUserRef = useRef(null);
+  // Mutating the ref above doesn't itself re-trigger the push effect if
+  // `notes` hasn't independently changed since (e.g. nothing needed
+  // updating during the background pass) -- bumped alongside the ref so the
+  // push effect actually re-checks the gate once the pass completes,
+  // instead of staying blocked until some unrelated notes change happens to
+  // come along and re-evaluate it.
+  const [attachmentsPulledTick, setAttachmentsPulledTick] = useState(0);
   // Bumped by the 'online' listener below to re-trigger the pull effect
   // (which otherwise only depends on `syncUser`) once the browser reports
   // connectivity is back, so a pull that failed while offline recovers on
@@ -171,7 +201,15 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     (async () => {
       try {
       setSyncStatus?.('syncing');
-      const { data, error } = await withRetry(() => supabase.from('notes').select('*').eq('user_id', syncUser.id));
+      // Images/voice notes are excluded here on purpose: they're base64
+      // text embedded directly in the row, and a handful of photos can add
+      // up to several MB per note. Fetching the full table on every pull
+      // (even when nothing but this device's own edits changed) made every
+      // sync take several seconds just moving bytes that hadn't changed. A
+      // fast metadata-only pass gets notes on screen almost immediately;
+      // attachment bytes get filled in afterward by the background pass
+      // below, without blocking anything the user is actually looking at.
+      const { data, error } = await withRetry(() => supabase.from('notes').select(LIGHT_COLUMNS).eq('user_id', syncUser.id));
       if (cancelled) return;
       if (error) {
         console.error('Sync pull failed:', error);
@@ -188,7 +226,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
           const rowUpdatedAt = row.updated_at ? new Date(row.updated_at).getTime() : 0;
           if (existing) {
             if (rowUpdatedAt > existing.updatedAt && !(isBlankRow(row) && hasRealContent(existing))) {
-              const updated = fromCloudRow(row, existing.id);
+              const updated = fromCloudRow(row, existing.id, existing);
               merged = merged.map((n) => (n.id === existing.id ? updated : n));
               syncedRef.current[existing.id] = updated.updatedAt;
             } else {
@@ -237,6 +275,36 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       pulledForUserRef.current = syncUser.id;
       setSyncStatus?.('idle');
       setSyncError?.('');
+
+      // Background pass: fetch just the attachment bytes and merge them in
+      // once ready, without making the user wait for it. Deliberately not
+      // awaited (and not inside this try/finally), so it doesn't hold the
+      // "pull in flight" guard open for however long a few MB of images
+      // takes -- a second legitimate pull (e.g. a fresh sign-in) shouldn't
+      // be blocked behind this.
+      (async () => {
+        const { data: attachRows, error: attachError } = await withRetry(() => supabase.from('notes').select('id, images, voice_notes').eq('user_id', syncUser.id));
+        if (cancelled || attachError || !attachRows) return;
+        attachmentsPulledForUserRef.current = syncUser.id;
+        setAttachmentsPulledTick((t) => t + 1);
+        const byCloudId = new Map(attachRows.map((r) => [r.id, r]));
+        const current = notesRef.current;
+        let changed = false;
+        const withAttachments = current.map((n) => {
+          if (!n.cloudId) return n;
+          const match = byCloudId.get(n.cloudId);
+          if (!match) return n;
+          const newImages = match.images || [];
+          const newVoice = match.voice_notes || [];
+          if (JSON.stringify(newImages) === JSON.stringify(n.images || []) && JSON.stringify(newVoice) === JSON.stringify(n.voiceNotes || [])) return n;
+          changed = true;
+          return { ...n, images: newImages, voiceNotes: newVoice };
+        });
+        if (!changed) return;
+        notesRef.current = withAttachments;
+        setNotes(withAttachments);
+        saveNotesLocal(withAttachments);
+      })();
       } finally {
         if (pullInFlightForUserId === syncUser.id) pullInFlightForUserId = null;
       }
@@ -274,7 +342,12 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
     // attachment merge has finished, a note's images/voiceNotes in `notes`
     // may still be metadata-only (no dataUrl yet). Pushing that up would
     // overwrite the cloud row's real image/audio data with a stripped one.
-    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || localSaveError || !localAttachmentsReady) return;
+    // attachmentsPulledForUserRef guards the analogous cloud-side race: the
+    // fast metadata-only pull can't tell us what a note's attachments
+    // actually are right now, so pushing before the background attachment
+    // pass has completed at least once risks sending stale local data over
+    // a genuinely newer image/recording from another device.
+    if (!supabaseEnabled || !syncUser || pulledForUserRef.current !== syncUser.id || attachmentsPulledForUserRef.current !== syncUser.id || localSaveError || !localAttachmentsReady) return;
 
     async function doPush() {
       if (!syncUserRef.current) return;
@@ -346,7 +419,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
       document.removeEventListener('visibilitychange', flushOnHide);
       window.removeEventListener('pagehide', flushOnHide);
     };
-  }, [notes, syncUser, setSyncStatus, localSaveError, localAttachmentsReady]);
+  }, [notes, syncUser, setSyncStatus, localSaveError, localAttachmentsReady, attachmentsPulledTick]);
 
   useEffect(() => {
     if (!supabaseEnabled || !syncUser) return;
