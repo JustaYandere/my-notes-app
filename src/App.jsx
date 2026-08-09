@@ -134,6 +134,7 @@ export default function NotesApp() {
   const [textSizeIdx, setTextSizeIdx] = useState(1);
   const [defaultColor, setDefaultColor] = useState('random');
   const [autoSave, setAutoSave] = useState(true);
+  const [autoBackupEnabled, setAutoBackupEnabled] = useState(true);
   const [autoMoveCompleted, setAutoMoveCompleted] = useState(false);
   const [fontChoice, setFontChoice] = useState('classic');
   const [confirmOnClose, setConfirmOnClose] = useState(true);
@@ -550,6 +551,7 @@ export default function NotesApp() {
       if (typeof savedSettings.textSizeIdx === 'number') setTextSizeIdx(savedSettings.textSizeIdx);
       if (savedSettings.defaultColor) setDefaultColor(savedSettings.defaultColor);
       if (typeof savedSettings.autoSave === 'boolean') setAutoSave(savedSettings.autoSave);
+      if (typeof savedSettings.autoBackupEnabled === 'boolean') setAutoBackupEnabled(savedSettings.autoBackupEnabled);
       if (Array.isArray(savedSettings.hiddenSettings)) setHiddenSettings(savedSettings.hiddenSettings);
       if (typeof savedSettings.autoMoveCompleted === 'boolean') setAutoMoveCompleted(savedSettings.autoMoveCompleted);
       if (savedSettings.fontChoice && FONT_OPTIONS[savedSettings.fontChoice]) setFontChoice(savedSettings.fontChoice);
@@ -582,7 +584,7 @@ export default function NotesApp() {
     (async () => {
       const handle = await getFolderHandle();
       if (!cancelled && handle) setBackupFolderName(handle.name);
-      if (!cancelled && Date.now() - lastBackupAt >= BACKUP_INTERVAL_MS) await runBackupNow(false);
+      if (!cancelled && autoBackupEnabled && Date.now() - lastBackupAt >= BACKUP_INTERVAL_MS) await runBackupNow(false);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -599,8 +601,8 @@ export default function NotesApp() {
   }, [notes, hydrated, autoSave]);
   useEffect(() => {
     if (!hydrated) return;
-    saveSettingsLocal({ customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings });
-  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings, hydrated]);
+    saveSettingsLocal({ customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoBackupEnabled, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings });
+  }, [customColors, customThemes, activeThemeId, modalTint, transparentCards, separatorColorId, separatorColors, mainBgEffect, mainBgImage, shareColors, ambientSound, ambientSoundData, ambientSoundName, ambientVolume, view, sortBy, noteSizeIdx, textSizeIdx, defaultColor, autoSave, autoBackupEnabled, autoMoveCompleted, fontChoice, confirmOnClose, fullScreenEditor, similarThreshold, pinEnabled, pin, hiddenSettings, hydrated]);
 
   useEffect(() => {
     saveLocal(PIN_LOCKOUT_KEY, { failCount: pinFailCount, lockUntil: pinLockUntil });
@@ -3164,8 +3166,14 @@ export default function NotesApp() {
 
                 <div style={{ borderTop: borderStyle, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <label style={{ fontSize: 13, color: muted, marginBottom: -2 }}>Automatic backups</label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={autoBackupEnabled} onChange={(e) => setAutoBackupEnabled(e.target.checked)} />
+                    Back up automatically every 2 weeks
+                  </label>
                   <p style={{ fontSize: 12, color: muted, margin: '0 0 2px' }}>
-                    A snapshot is saved automatically every 2 weeks, kept for about 2 months, separate from your synced notes — so a sync problem can't take a backup down with it.
+                    {autoBackupEnabled
+                      ? 'Kept for about 2 months, separate from your synced notes — so a sync problem can\'t take a backup down with it.'
+                      : 'Off — "Back up now" below still works any time, just nothing happens automatically.'}
                     {' '}{lastBackupAt ? `Last backup: ${new Date(lastBackupAt).toLocaleString()}.` : 'No backup yet.'}
                   </p>
                   <button onClick={() => runBackupNow(true)} style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center', background: bg, color: text, border: borderStyle, borderRadius: 10, padding: '10px 12px', fontSize: 14, cursor: 'pointer' }}><Download size={15} /> Back up now</button>
