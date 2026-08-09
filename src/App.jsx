@@ -19,7 +19,7 @@ import {
 } from './utils/backupStore';
 import {
   APP_VERSION, FONT_OPTIONS, STARTER_COLORS, STARTER_THEMES, SEED_NOTES, SORT_OPTIONS, SIZE_STEPS, SCALE_MAP,
-  SETTINGS_KEY, SHARED_OUT_KEY, LAST_BACKUP_AT_KEY, MAX_HISTORY, MAX_CUSTOM, BACKUP_INTERVAL_MS, BACKUP_RETENTION_MS,
+  SETTINGS_KEY, SHARED_OUT_KEY, LAST_BACKUP_AT_KEY, PROTECTION_NUDGE_DISMISSED_KEY, MAX_HISTORY, MAX_CUSTOM, BACKUP_INTERVAL_MS, BACKUP_RETENTION_MS,
 } from './constants';
 import ColorWheel from './components/ColorWheel';
 import LightnessSlider from './components/LightnessSlider';
@@ -212,6 +212,7 @@ export default function NotesApp() {
   const [backupStatus, setBackupStatus] = useState('');
   const [backupListOpen, setBackupListOpen] = useState(false);
   const [backupList, setBackupList] = useState([]);
+  const [protectionNudgeDismissed, setProtectionNudgeDismissed] = useState(() => !!loadLocal(PROTECTION_NUDGE_DISMISSED_KEY));
   const [hiddenSettings, setHiddenSettings] = useState([]);
   const [hideConfirm, setHideConfirm] = useState(null); // { id, label, x, y }
   const holdToHideTimer = useRef(null);
@@ -1733,6 +1734,10 @@ export default function NotesApp() {
     setLastBackupAt(timestamp);
     if (manual) { setBackupStatus(`Backed up${folderMessage}.`); setTimeout(() => setBackupStatus(''), 4000); }
   }
+  function dismissProtectionNudge() {
+    setProtectionNudgeDismissed(true);
+    saveLocal(PROTECTION_NUDGE_DISMISSED_KEY, true);
+  }
   async function chooseBackupFolder() {
     if (!window.showDirectoryPicker) return;
     try {
@@ -2446,6 +2451,22 @@ export default function NotesApp() {
           <div style={{ background: '#E8735F', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Ban size={15} style={{ flexShrink: 0 }} />
             Couldn't save your notes on this device — it may be low on storage. Recent changes (especially images) may not stick around after closing the app. Try removing large images or freeing up space.
+          </div>
+        )}
+        {!syncUser && !backupFolderName && !protectionNudgeDismissed && liveNotes.length >= 5 && (
+          <div style={{ background: '#7FA671', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <span style={{ flex: 1 }}>
+              Your notes only live on this device right now — clearing this browser's data (or losing the device) would lose them for good.
+              {' '}
+              <button onClick={() => { setSettingsSection('account'); setSettingsOpen(true); }} style={{ background: 'none', border: 'none', color: '#fff', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}>Sign in to sync</button>
+              {typeof window !== 'undefined' && window.showDirectoryPicker && (
+                <>
+                  {' or '}
+                  <button onClick={chooseBackupFolder} style={{ background: 'none', border: 'none', color: '#fff', textDecoration: 'underline', cursor: 'pointer', padding: 0, font: 'inherit' }}>back up to a folder on this device</button>
+                </>
+              )}.
+            </span>
+            <button onClick={dismissProtectionNudge} aria-label="Dismiss" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: 0, opacity: 0.85 }}><X size={15} /></button>
           </div>
         )}
         {massRemovalWarning && (

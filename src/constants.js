@@ -1,5 +1,5 @@
 // Bumped by 0.01 with each pushed update so it's easy to confirm a deploy landed.
-export const APP_VERSION = '1.16';
+export const APP_VERSION = '1.17';
 
 export const FONT_OPTIONS = {
   classic: { label: 'Classic', title: "'Fraunces', serif", body: "'Inter', sans-serif" },
@@ -47,6 +47,7 @@ export const NOTES_KEY = 'makinote_notes_v1';
 export const SETTINGS_KEY = 'makinote_settings_v1';
 export const SHARED_OUT_KEY = 'makinote_shared_out_v1';
 export const LAST_BACKUP_AT_KEY = 'makinote_last_backup_at';
+export const PROTECTION_NUDGE_DISMISSED_KEY = 'makinote_protection_nudge_dismissed';
 export const MAX_HISTORY = 50;
 export const MAX_CUSTOM = 20;
 export const BACKUP_INTERVAL_MS = 14 * 24 * 60 * 60 * 1000; // 2 weeks
