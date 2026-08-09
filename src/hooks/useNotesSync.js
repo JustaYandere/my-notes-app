@@ -249,7 +249,19 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         // nothing about whether they still exist.
         const fetchedCloudIds = new Set((data || []).map((row) => row.id));
         const staleRemoved = merged.filter((n) => n.cloudId && !n.remoteOwnerId && !fetchedCloudIds.has(n.cloudId));
-        if (staleRemoved.length) merged = merged.filter((n) => !n.cloudId || n.remoteOwnerId || fetchedCloudIds.has(n.cloudId));
+        // A couple of notes vanishing (someone emptied Trash on another
+        // device, deleted a note or two) is normal and should stay
+        // automatic. A LARGE fraction of everything this account owns
+        // vanishing at once, though, is far more likely to be a bug (an
+        // empty/wrong query response, an RLS misconfiguration) than a real
+        // mass deletion -- and unlike a normal removal, blindly trusting
+        // that signal here would silently wipe those notes from every other
+        // device too, the moment they next sync. Skip the removal entirely
+        // in that case and just warn instead; nothing destructive happens
+        // without a human actually looking at it.
+        const previouslySyncedCount = merged.filter((n) => n.cloudId && !n.remoteOwnerId).length;
+        const massRemoval = previouslySyncedCount > 0 && staleRemoved.length / previouslySyncedCount >= 0.5;
+        if (staleRemoved.length && !massRemoval) merged = merged.filter((n) => !n.cloudId || n.remoteOwnerId || fetchedCloudIds.has(n.cloudId));
         notesRef.current = merged;
         setNotes(merged);
         // Written directly to disk here, independent of the user's "auto-save
@@ -260,7 +272,7 @@ export function useNotesSync({ notes, setNotes, syncUser, nextIdRef, setSyncStat
         // starts over from stale local data and re-pulls (and re-pushes)
         // everything, compounding forever.
         saveNotesLocal(merged);
-        if (staleRemoved.length) onNotesRemoved?.(staleRemoved, 'deleted-elsewhere');
+        if (staleRemoved.length) onNotesRemoved?.(staleRemoved, massRemoval ? 'mass-removal-blocked' : 'deleted-elsewhere');
       }
 
       // NOTE: this used to also auto-delete the losing side of a duplicate

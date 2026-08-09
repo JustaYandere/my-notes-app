@@ -201,6 +201,7 @@ export default function NotesApp() {
   const [exiting, setExiting] = useState(false);
   const [localSaveError, setLocalSaveError] = useState(false);
   const [cleanupNotice, setCleanupNotice] = useState('');
+  const [massRemovalWarning, setMassRemovalWarning] = useState('');
   const [hiddenSettings, setHiddenSettings] = useState([]);
   const [hideConfirm, setHideConfirm] = useState(null); // { id, label, x, y }
   const holdToHideTimer = useRef(null);
@@ -252,7 +253,13 @@ export default function NotesApp() {
   const { deleteCloudNote, deleteCloudNotes } = useNotesSync({
     notes, setNotes, syncUser, nextIdRef: nextId, setSyncStatus, setSyncError, localSaveError, localAttachmentsReady: hydrated,
     onNotesRemoved: (removed, reason) => {
-      if (reason !== 'deleted-elsewhere' || removed.length === 0) return;
+      if (removed.length === 0) return;
+      if (reason === 'mass-removal-blocked') {
+        console.error('[sync] blocked a mass removal that looked like a bug rather than a real deletion:', removed);
+        setMassRemovalWarning(`Sync noticed ${removed.length} of your notes seem to have vanished from your account elsewhere — that's unusual enough that nothing was removed here as a precaution. If you didn't do a big cleanup on another device, something may be wrong; check your other devices before assuming it's fine.`);
+        return;
+      }
+      if (reason !== 'deleted-elsewhere') return;
       console.log('[sync] removed local note(s) already deleted on another device:', removed);
       setCleanupNotice(`Synced: removed ${removed.length} note(s) already deleted on another device — ${removed.map((n) => `"${n.title || 'Untitled'}"`).join(', ')}`);
     },
@@ -2231,6 +2238,13 @@ export default function NotesApp() {
           <div style={{ background: '#E8735F', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Ban size={15} style={{ flexShrink: 0 }} />
             Couldn't save your notes on this device — it may be low on storage. Recent changes (especially images) may not stick around after closing the app. Try removing large images or freeing up space.
+          </div>
+        )}
+        {massRemovalWarning && (
+          <div style={{ background: '#B8474B', color: '#fff', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 14, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+            <Ban size={15} style={{ flexShrink: 0, marginTop: 2 }} />
+            <span style={{ flex: 1 }}>{massRemovalWarning}</span>
+            <button onClick={() => setMassRemovalWarning('')} aria-label="Dismiss" style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', display: 'flex', flexShrink: 0, padding: 0, opacity: 0.85 }}><X size={15} /></button>
           </div>
         )}
         {cleanupNotice && (
