@@ -292,6 +292,18 @@ export default function NotesApp() {
   useEffect(() => {
     if ('scrollRestoration' in window.history) window.history.scrollRestoration = 'manual';
   }, []);
+  useEffect(() => {
+    // Asks the browser not to silently evict this site's storage under disk
+    // pressure (e.g. phone running low on space quietly clearing a
+    // rarely-used site's data) -- the more common way notes actually go
+    // missing than someone deliberately clearing cookies. Doesn't protect
+    // against that deliberate action, which no site gets to override.
+    if (navigator.storage?.persist) {
+      navigator.storage.persist().then((granted) => {
+        console.log(granted ? '[storage] Persistent storage granted' : '[storage] Persistent storage not granted — may still be evicted under storage pressure');
+      });
+    }
+  }, []);
   useLayoutEffect(() => {
     if (!hydrated) return;
     const saved = Number(sessionStorage.getItem('makinote_scrollY'));
